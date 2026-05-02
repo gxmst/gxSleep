@@ -39,7 +39,7 @@ object AudioFeatureExtractor {
         var sumSquares = 0.0
         var peakValue = 0
         var zeroCrossings = 0
-        var prevSample = buffer[offset]
+        var prevSample: Int = buffer[offset].toInt()
 
         for (i in 0 until length) {
             val s = buffer[offset + i].toInt()

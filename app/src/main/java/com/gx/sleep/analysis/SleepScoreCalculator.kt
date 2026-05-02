@@ -40,7 +40,7 @@ object SleepScoreCalculator {
         score -= (1 - quietPercent) * 30
 
         // Snore penalty (0-25 points)
-        val snoreRatio = snoreDurationMs.toFloat() / totalDurationMs
+        val snoreRatio = snoreDurationMs.toDouble() / totalDurationMs
         score -= min(snoreRatio * 100, 25.0)
 
         // Event count penalties
@@ -57,7 +57,7 @@ object SleepScoreCalculator {
         // Baseline noise penalty (0-10 points)
         // Higher baseline = noisier environment
         if (baselineRms > 100) {
-            score -= min((baselineRms - 100) * 0.05, 10.0)
+            score -= min((baselineRms - 100).toDouble() * 0.05, 10.0)
         }
 
         // Max noise penalty (0-5 points)
