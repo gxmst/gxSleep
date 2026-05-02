@@ -32,9 +32,6 @@ fun AppNavGraph(navController: NavHostController) {
                 },
                 onNavigateToSettings = {
                     navController.navigate(Screen.Settings.route)
-                },
-                onNavigateToPermission = {
-                    // Handled in HomeScreen via LaunchedEffect
                 }
             )
         }
