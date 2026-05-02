@@ -22,7 +22,7 @@ data class HomeUiState(
     val eventCount: Int = 0,
     val sessionId: Long? = null,
     val lastReport: SessionReport? = null,
-    val recentSessions: List<Int> = emptyList(), // event counts for last 7 sessions
+    val recentEventCounts: List<Int> = emptyList(), // event counts for last 7 sessions
     val hasAudioPermission: Boolean = false,
     val hasNotificationPermission: Boolean = true,
     val isLoading: Boolean = true,
@@ -121,7 +121,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                     .map { session ->
                         repository.getEventsBySessionList(session.id).size
                     }
-                _uiState.value = _uiState.value.copy(recentSessions = recent)
+                _uiState.value = _uiState.value.copy(recentEventCounts = recent)
             }
         }
     }

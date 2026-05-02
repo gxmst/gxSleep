@@ -30,6 +30,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -94,9 +95,13 @@ fun HomeScreen(
         }
     }
 
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) }
+    ) { padding ->
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .padding(padding)
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp)
             .padding(top = 48.dp, bottom = 24.dp),
@@ -393,7 +398,7 @@ fun HomeScreen(
         }
 
         // Recent 7-day mini trend
-        if (state.recentSessions.size >= 2) {
+        if (state.recentEventCounts.size >= 2) {
             Spacer(modifier = Modifier.height(20.dp))
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -404,19 +409,19 @@ fun HomeScreen(
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Text(
-                        text = "最近 7 天趋势",
+                        text = "最近 7 天声音事件趋势",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Medium
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "声音事件次数",
+                        text = "每晚检测到的明显声音次数",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     MiniTrendChart(
-                        values = state.recentSessions.map { it.toFloat() },
+                        values = state.recentEventCounts.map { it.toFloat() },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(80.dp)
@@ -434,6 +439,7 @@ fun HomeScreen(
             textAlign = TextAlign.Center
         )
     }
+    } // Scaffold
 }
 
 @Composable

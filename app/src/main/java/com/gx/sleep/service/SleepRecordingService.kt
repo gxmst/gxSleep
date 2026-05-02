@@ -96,6 +96,7 @@ class SleepRecordingService : Service() {
 
     private var eventDetector: SoundEventDetector? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val stopScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     // P1: Synchronized ArrayList instead of CopyOnWriteArrayList.
     // processFrame (hot path) does add() under lock which is O(1) amortized.
@@ -366,9 +367,9 @@ class SleepRecordingService : Service() {
     }
 
     private fun stopRecording() {
-        val stopScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        val capturedSessionId = currentSessionId
         stopScope.launch {
-            Log.i(TAG, "Stopping recording, sessionId=$currentSessionId")
+            Log.i(TAG, "Stopping recording, sessionId=$capturedSessionId")
 
             try {
                 val lastEvent = eventDetector?.flush()
@@ -389,9 +390,9 @@ class SleepRecordingService : Service() {
             }
 
             try {
-                if (currentSessionId > 0) {
+                if (capturedSessionId > 0) {
                     val batteryPercent = DeviceInfoProvider.getBatteryPercent(this@SleepRecordingService)
-                    repository.completeSession(currentSessionId, batteryPercent)
+                    repository.completeSession(capturedSessionId, batteryPercent)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error completing session", e)
@@ -401,8 +402,17 @@ class SleepRecordingService : Service() {
             debugMetrics.onRecordingStopped()
 
             try { stopForeground(STOP_FOREGROUND_REMOVE) } catch (_: Exception) {}
+
+            // Send completion notification after removing foreground
+            try {
+                if (capturedSessionId > 0) {
+                    notificationManager.sendCompletionNotification(capturedSessionId)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error sending completion notification", e)
+            }
+
             stopSelf()
-            stopScope.cancel()
             Log.i(TAG, "Recording stopped, dbWrites=$dbWriteCount")
         }
     }
