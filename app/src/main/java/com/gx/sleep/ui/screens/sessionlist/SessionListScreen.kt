@@ -9,22 +9,22 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -34,6 +34,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gx.sleep.data.local.entity.SessionStatus
@@ -43,28 +44,24 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SessionListScreen(
-    onBack: () -> Unit,
     onSessionClick: (Long) -> Unit,
     viewModel: SessionListViewModel = viewModel()
 ) {
     val sessions by viewModel.sessions.collectAsState()
     val scope = rememberCoroutineScope()
     var showDeleteDialog by remember { mutableStateOf<Long?>(null) }
-    val dateFormat = SimpleDateFormat("MM/dd HH:mm", Locale.getDefault())
+    val dateFormat = SimpleDateFormat("M月d日 HH:mm", Locale.CHINESE)
 
     if (showDeleteDialog != null) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = null },
             title = { Text("删除记录") },
-            text = { Text("确定要删除这条记录吗？相关数据将被永久删除。") },
+            text = { Text("确定要删除这条记录吗？") },
             confirmButton = {
                 TextButton(onClick = {
-                    scope.launch {
-                        showDeleteDialog?.let { viewModel.deleteSession(it) }
-                    }
+                    scope.launch { showDeleteDialog?.let { viewModel.deleteSession(it) } }
                     showDeleteDialog = null
                 }) {
                     Text("删除", color = MaterialTheme.colorScheme.error)
@@ -78,41 +75,56 @@ fun SessionListScreen(
         )
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("历史记录") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                }
-            )
-        }
-    ) { padding ->
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 20.dp)
+            .padding(top = 48.dp)
+    ) {
+        Text(
+            text = "历史记录",
+            style = MaterialTheme.typography.headlineLarge,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = "查看每晚的睡眠声音记录",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
+
         if (sessions.isEmpty()) {
             Column(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+                    .fillMaxWidth()
+                    .padding(vertical = 64.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                Icon(
+                    Icons.Outlined.History,
+                    contentDescription = null,
+                    modifier = Modifier.size(48.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "暂无记录",
-                    style = MaterialTheme.typography.bodyLarge,
+                    text = "还没有记录",
+                    style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "开始第一次睡眠记录吧",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                 )
             }
         } else {
             LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                item { Spacer(modifier = Modifier.height(8.dp)) }
                 items(sessions, key = { it.id }) { session ->
                     SessionListItem(
                         session = session,
@@ -121,7 +133,7 @@ fun SessionListScreen(
                         onDelete = { showDeleteDialog = session.id }
                     )
                 }
-                item { Spacer(modifier = Modifier.height(8.dp)) }
+                item { Spacer(modifier = Modifier.height(16.dp)) }
             }
         }
     }
@@ -134,58 +146,66 @@ private fun SessionListItem(
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val hours = session.duration / 3600000
+    val minutes = (session.duration % 3600000) / 60000
+    val durationText = if (hours > 0) "${hours}小时${minutes}分钟" else "${minutes}分钟"
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
         colors = CardDefaults.cardColors(
-            containerColor = if (session.status == SessionStatus.CRASHED)
-                MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
-            else
-                MaterialTheme.colorScheme.surfaceVariant
-        )
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        shape = RoundedCornerShape(16.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = dateFormat.format(Date(session.startTime)),
-                    style = MaterialTheme.typography.titleMedium
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Medium
                 )
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = when (session.status) {
-                        SessionStatus.COMPLETED -> "已完成"
-                        SessionStatus.CRASHED -> "异常中断"
-                        SessionStatus.RUNNING -> "记录中"
-                        SessionStatus.STOPPED_BY_SYSTEM -> "系统停止"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = when (session.status) {
-                        SessionStatus.CRASHED -> MaterialTheme.colorScheme.error
-                        SessionStatus.RUNNING -> MaterialTheme.colorScheme.primary
-                        else -> MaterialTheme.colorScheme.onSurfaceVariant
-                    }
-                )
-                if (session.duration > 0) {
-                    val hours = session.duration / 3600000
-                    val minutes = (session.duration % 3600000) / 60000
+
+                val statusText = when (session.status) {
+                    SessionStatus.COMPLETED -> "记录完成"
+                    SessionStatus.CRASHED -> "意外中断"
+                    SessionStatus.RUNNING -> "记录中"
+                    SessionStatus.STOPPED_BY_SYSTEM -> "系统停止"
+                }
+                val statusColor = when (session.status) {
+                    SessionStatus.CRASHED -> MaterialTheme.colorScheme.error
+                    SessionStatus.RUNNING -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "${hours}h ${minutes}m",
-                        style = MaterialTheme.typography.bodySmall
+                        text = statusText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = statusColor
                     )
+                    if (session.duration > 0) {
+                        Text(
+                            text = " · $durationText",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
             IconButton(onClick = onDelete) {
                 Icon(
                     Icons.Default.Delete,
                     contentDescription = "删除",
-                    tint = MaterialTheme.colorScheme.error
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }

@@ -17,7 +17,10 @@ class RecordingNotificationManager(private val context: Context) {
     }
 
     fun buildInitNotification(): Notification {
-        return buildBaseNotification("正在初始化录音...", "正在准备麦克风和录音参数")
+        return buildBaseNotification(
+            "正在准备睡眠记录",
+            "正在初始化夜间声音监测"
+        )
     }
 
     fun buildRecordingNotification(): Notification {
@@ -25,6 +28,25 @@ class RecordingNotificationManager(private val context: Context) {
             context.getString(R.string.notification_recording_title),
             context.getString(R.string.notification_recording_text)
         )
+    }
+
+    fun buildCompletionNotification(): Notification {
+        val openIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val openPendingIntent = PendingIntent.getActivity(
+            context, 0, openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        return NotificationCompat.Builder(context, GxSleepApp.CHANNEL_ID)
+            .setContentTitle("本次睡眠记录已完成")
+            .setContentText("点击查看昨晚摘要")
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setContentIntent(openPendingIntent)
+            .setAutoCancel(true)
+            .setSilent(true)
+            .build()
     }
 
     fun updateToRecordingNotification() {
@@ -58,6 +80,11 @@ class RecordingNotificationManager(private val context: Context) {
                 android.R.drawable.ic_media_pause,
                 context.getString(R.string.notification_action_stop),
                 stopPendingIntent
+            )
+            .addAction(
+                android.R.drawable.ic_menu_share,
+                context.getString(R.string.notification_action_open),
+                openPendingIntent
             )
             .setOngoing(true)
             .setSilent(true)

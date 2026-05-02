@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.gx.sleep.GxSleepApp
 import com.gx.sleep.analysis.SessionReportGenerator
+import com.gx.sleep.data.local.entity.SessionStatus
 import com.gx.sleep.data.repository.SleepRepository
 import com.gx.sleep.domain.model.SessionReport
 import com.gx.sleep.service.SleepRecordingService
@@ -21,6 +22,7 @@ data class HomeUiState(
     val eventCount: Int = 0,
     val sessionId: Long? = null,
     val lastReport: SessionReport? = null,
+    val recentSessions: List<Int> = emptyList(), // event counts for last 7 sessions
     val hasAudioPermission: Boolean = false,
     val hasNotificationPermission: Boolean = true,
     val isLoading: Boolean = true,
@@ -44,6 +46,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         observeRecordingState()
         observeErrors()
         loadLatestSession()
+        loadRecentSessions()
         checkForCrashedSession()
     }
 
@@ -86,7 +89,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private fun loadLatestSession() {
         viewModelScope.launch {
             repository.getLatestSession().collectLatest { session ->
-                if (session != null && session.status != com.gx.sleep.data.local.entity.SessionStatus.RUNNING) {
+                if (session != null && session.status != SessionStatus.RUNNING) {
                     try {
                         val samples = repository.getSamplesBySession(session.id)
                         val events = repository.getEventsBySessionList(session.id)
@@ -109,13 +112,24 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun loadRecentSessions() {
+        viewModelScope.launch {
+            repository.getAllSessions().collectLatest { sessions ->
+                val recent = sessions
+                    .filter { it.status == SessionStatus.COMPLETED }
+                    .takeLast(7)
+                    .map { session ->
+                        repository.getEventsBySessionList(session.id).size
+                    }
+                _uiState.value = _uiState.value.copy(recentSessions = recent)
+            }
+        }
+    }
+
     private fun checkForCrashedSession() {
         viewModelScope.launch {
-            val latest = repository.getLatestSession()
-            latest.collectLatest { session ->
-                if (session != null &&
-                    session.status == com.gx.sleep.data.local.entity.SessionStatus.CRASHED
-                ) {
+            repository.getLatestSession().collectLatest { session ->
+                if (session != null && session.status == SessionStatus.CRASHED) {
                     _uiState.value = _uiState.value.copy(lastSessionCrashed = true)
                 }
             }

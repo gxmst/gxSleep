@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
@@ -30,13 +31,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.gx.sleep.service.SleepRecordingService
 import com.gx.sleep.ui.components.AudioLevelIndicator
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -44,29 +44,26 @@ fun RecordingScreen(
     onBack: () -> Unit,
     onStopAndShowReport: () -> Unit
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     val isRecording by SleepRecordingService.isRecording.collectAsState()
     val currentRms by SleepRecordingService.currentRms.collectAsState()
-    val currentDbfs by SleepRecordingService.currentDbfs.collectAsState()
     val eventCount by SleepRecordingService.eventCount.collectAsState()
     val sessionId by SleepRecordingService.sessionId.collectAsState()
 
     var showStopDialog by remember { mutableStateOf(false) }
-    val dateFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
 
-    // Stop confirmation dialog
     if (showStopDialog) {
         AlertDialog(
             onDismissRequest = { showStopDialog = false },
             title = { Text("停止记录") },
-            text = { Text("确定要停止睡眠声音记录吗？") },
+            text = { Text("确定要停止今晚的睡眠记录吗？") },
             confirmButton = {
                 TextButton(onClick = {
                     showStopDialog = false
                     SleepRecordingService.stopService(context)
                     onStopAndShowReport()
                 }) {
-                    Text("停止")
+                    Text("停止记录")
                 }
             },
             dismissButton = {
@@ -80,7 +77,7 @@ fun RecordingScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("睡眠记录中") },
+                title = { Text("睡眠记录") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -93,7 +90,7 @@ fun RecordingScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(16.dp),
+                .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
@@ -101,67 +98,54 @@ fun RecordingScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                Spacer(modifier = Modifier.height(32.dp))
+
                 if (isRecording) {
                     Text(
-                        text = "录音中",
+                        text = "正在记录中",
                         style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "手机放在枕边，安心入睡",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 } else {
                     Text(
                         text = "已停止",
-                        style = MaterialTheme.typography.headlineMedium
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Medium
                     )
                 }
 
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(40.dp))
 
-                // Audio level
                 AudioLevelIndicator(rms = currentRms, modifier = Modifier.fillMaxWidth())
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(24.dp))
 
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ),
+                    shape = RoundedCornerShape(16.dp)
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
+                            .padding(20.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceEvenly
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("音量", style = MaterialTheme.typography.labelSmall)
-                                Text(
-                                    "%.1f dBFS".format(currentDbfs),
-                                    style = MaterialTheme.typography.titleMedium
-                                )
-                            }
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("声音事件", style = MaterialTheme.typography.labelSmall)
-                                Text(
-                                    "$eventCount",
-                                    style = MaterialTheme.typography.titleMedium
-                                )
-                            }
-                        }
+                        Text(
+                            text = "已检测到 $eventCount 段声音",
+                            style = MaterialTheme.typography.bodyLarge
+                        )
                     }
                 }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Text(
-                    text = "Session ID: ${sessionId ?: "-"}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
 
             Column(
@@ -169,26 +153,23 @@ fun RecordingScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "手机放在枕边，保持充电",
+                    text = "锁屏后会继续记录，放心休息",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
                 OutlinedButton(
                     onClick = { showStopDialog = true },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(56.dp),
+                        .height(52.dp),
+                    shape = RoundedCornerShape(14.dp),
                     enabled = isRecording
                 ) {
-                    Text(
-                        text = "停止记录",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.error
-                    )
+                    Text("停止记录", style = MaterialTheme.typography.titleMedium)
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))

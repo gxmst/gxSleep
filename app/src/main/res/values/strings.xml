@@ -3,9 +3,10 @@
     <string name="app_name">gxSleep</string>
     <string name="notification_channel_name">睡眠记录</string>
     <string name="notification_channel_desc">睡眠声音记录服务通知</string>
-    <string name="notification_recording_title">睡眠声音记录进行中</string>
-    <string name="notification_recording_text">手机放在枕边，锁屏后继续记录</string>
+    <string name="notification_recording_title">今夜睡眠记录进行中</string>
+    <string name="notification_recording_text">锁屏后会继续记录夜间声音</string>
     <string name="notification_action_stop">停止记录</string>
+    <string name="notification_action_open">打开应用</string>
     <string name="permission_audio_rationale">需要麦克风权限来采集环境声音，用于睡眠声音分析。</string>
     <string name="permission_notification_rationale">需要通知权限来显示睡眠记录状态。</string>
 </resources>

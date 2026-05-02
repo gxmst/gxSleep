@@ -11,27 +11,33 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
+// Soft indigo-purple palette for sleep app
 private val DarkColorScheme = darkColorScheme(
-    primary = Color(0xFF90CAF9),
-    secondary = Color(0xFF80CBC4),
-    tertiary = Color(0xFFCE93D8),
-    background = Color(0xFF121212),
-    surface = Color(0xFF1E1E1E),
-    surfaceVariant = Color(0xFF2C2C2C),
-    onPrimary = Color(0xFF003258),
-    onSecondary = Color(0xFF003737),
-    onBackground = Color(0xFFE0E0E0),
-    onSurface = Color(0xFFE0E0E0),
-    error = Color(0xFFEF9A9A)
+    primary = Color(0xFFB8C4FF),
+    secondary = Color(0xFFC5CAE9),
+    tertiary = Color(0xFFD1C4E9),
+    background = Color(0xFF0D1117),
+    surface = Color(0xFF161B22),
+    surfaceVariant = Color(0xFF1C2333),
+    surfaceContainerLow = Color(0xFF1A1F2E),
+    surfaceContainer = Color(0xFF222839),
+    onPrimary = Color(0xFF1A237E),
+    onSecondary = Color(0xFF283593),
+    onBackground = Color(0xFFDCE0E8),
+    onSurface = Color(0xFFDCE0E8),
+    onSurfaceVariant = Color(0xFF8B92A0),
+    error = Color(0xFFEF9A9A),
+    primaryContainer = Color(0xFF1E2A4A),
+    onPrimaryContainer = Color(0xFFB8C4FF)
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = Color(0xFF1565C0),
-    secondary = Color(0xFF00897B),
-    tertiary = Color(0xFF7B1FA2),
-    background = Color(0xFFFAFAFA),
+    primary = Color(0xFF3F51B5),
+    secondary = Color(0xFF5C6BC0),
+    tertiary = Color(0xFF7E57C2),
+    background = Color(0xFFF8F9FC),
     surface = Color(0xFFFFFFFF),
-    surfaceVariant = Color(0xFFF0F0F0),
+    surfaceVariant = Color(0xFFEEF0F7),
     onPrimary = Color.White,
     onSecondary = Color.White,
     onBackground = Color(0xFF1C1B1F),

@@ -23,15 +23,14 @@ fun AudioSaveModeSelector(
     Column {
         ModeOption(
             mode = AudioSaveMode.STATS_ONLY,
-            label = "仅统计（当前版本唯一可用）",
-            description = "不保存任何音频，只保存声音特征数据和事件统计",
+            label = "仅保存统计数据",
+            description = "不保存录音，只保存声音特征和事件统计（推荐）",
             selected = currentMode == AudioSaveMode.STATS_ONLY,
             onClick = { onModeSelected(AudioSaveMode.STATS_ONLY) }
         )
         Spacer(modifier = Modifier.height(8.dp))
-        // P1: Hide EVENT_CLIPS and FULL_RECORDING - not yet implemented
         Text(
-            text = "事件片段保存和完整录音将在后续版本中提供",
+            text = "事件片段保存将在后续版本中提供",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 48.dp)
