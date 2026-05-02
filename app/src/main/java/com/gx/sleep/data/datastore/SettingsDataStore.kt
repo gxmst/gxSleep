@@ -26,7 +26,8 @@ data class AppSettings(
     val eventPostBufferSeconds: Int = 7,
     val sampleRatePreference: Int = 16000,
     val enableBatteryWarning: Boolean = true,
-    val enableDebugMetrics: Boolean = false
+    val enableDebugMetrics: Boolean = false,
+    val enableWakeLock: Boolean = false
 )
 
 class SettingsDataStore(private val context: Context) {
@@ -41,7 +42,8 @@ class SettingsDataStore(private val context: Context) {
             eventPostBufferSeconds = prefs[KEY_EVENT_POST_BUFFER] ?: 7,
             sampleRatePreference = prefs[KEY_SAMPLE_RATE_PREFERENCE] ?: 16000,
             enableBatteryWarning = prefs[KEY_ENABLE_BATTERY_WARNING] ?: true,
-            enableDebugMetrics = prefs[KEY_ENABLE_DEBUG_METRICS] ?: false
+            enableDebugMetrics = prefs[KEY_ENABLE_DEBUG_METRICS] ?: false,
+            enableWakeLock = prefs[KEY_ENABLE_WAKE_LOCK] ?: false
         )
     }
 
@@ -73,6 +75,10 @@ class SettingsDataStore(private val context: Context) {
         context.settingsDataStore.edit { it[KEY_ENABLE_DEBUG_METRICS] = enabled }
     }
 
+    suspend fun updateWakeLock(enabled: Boolean) {
+        context.settingsDataStore.edit { it[KEY_ENABLE_WAKE_LOCK] = enabled }
+    }
+
     companion object {
         private val KEY_AUDIO_SAVE_MODE = stringPreferencesKey("audio_save_mode")
         private val KEY_SENSITIVITY = intPreferencesKey("sensitivity")
@@ -81,5 +87,6 @@ class SettingsDataStore(private val context: Context) {
         private val KEY_SAMPLE_RATE_PREFERENCE = intPreferencesKey("sample_rate_preference")
         private val KEY_ENABLE_BATTERY_WARNING = booleanPreferencesKey("enable_battery_warning")
         private val KEY_ENABLE_DEBUG_METRICS = booleanPreferencesKey("enable_debug_metrics")
+        private val KEY_ENABLE_WAKE_LOCK = booleanPreferencesKey("enable_wake_lock")
     }
 }

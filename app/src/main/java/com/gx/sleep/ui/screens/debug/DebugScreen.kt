@@ -13,6 +13,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -36,6 +37,7 @@ fun DebugScreen(onBack: () -> Unit) {
     val eventCount by SleepRecordingService.eventCount.collectAsState()
     val sessionId by SleepRecordingService.sessionId.collectAsState()
     val wakeLockHeld by SleepRecordingService.wakeLockHeld.collectAsState()
+    val wakeLockEnabled by SleepRecordingService.wakeLockEnabled.collectAsState()
 
     Scaffold(
         topBar = {
@@ -65,7 +67,36 @@ fun DebugScreen(onBack: () -> Unit) {
                     DebugRow("当前 RMS", "%.1f".format(currentRms))
                     DebugRow("当前 dBFS", "%.1f".format(currentDbfs))
                     DebugRow("已检测事件", "$eventCount")
-                    DebugRow("WakeLock", if (wakeLockHeld) "持有中" else "未持有")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = if (wakeLockHeld) CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer
+                ) else CardDefaults.cardColors()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("WakeLock 状态", style = MaterialTheme.typography.titleSmall)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    DebugRow("设置中已启用", if (wakeLockEnabled) "是" else "否")
+                    DebugRow("当前持有", if (wakeLockHeld) "是" else "否")
+                    if (wakeLockEnabled && !wakeLockHeld) {
+                        Text(
+                            text = "提示：已启用但未持有，可能录制尚未开始",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (!wakeLockEnabled) {
+                        Text(
+                            text = "前台服务是默认保活机制。如锁屏录制中断，可在设置中开启实验 WakeLock。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
 
@@ -91,26 +122,12 @@ fun DebugScreen(onBack: () -> Unit) {
 
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("录音参数", style = MaterialTheme.typography.titleSmall)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    DebugRow("采样率", "录制启动后显示")
-                    DebugRow("缓冲区大小", "录制启动后显示")
-                    DebugRow("DB 写入次数", "录制启动后显示")
-                    DebugRow("读取错误次数", "录制启动后显示")
-                    DebugRow("是否中断过", "录制启动后显示")
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
                     Text("说明", style = MaterialTheme.typography.titleSmall)
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = "此页面显示调试信息，帮助排查录制问题。" +
-                                "录制时可查看实时音频参数和系统资源使用情况。" +
-                                "采样率和缓冲区大小在录音启动后显示实际值。",
+                                "WakeLock 默认关闭，前台服务是主要保活机制。" +
+                                "如果锁屏录制中断，可在设置中开启实验 WakeLock。",
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }

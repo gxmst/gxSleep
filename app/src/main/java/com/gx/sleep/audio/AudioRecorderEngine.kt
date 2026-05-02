@@ -19,9 +19,9 @@ import kotlinx.coroutines.launch
 /**
  * Core audio capture engine using AudioRecord.
  * Captures PCM 16-bit mono audio and dispatches frames via callback.
- * All audio processing happens on a dedicated background thread.
  *
- * Performance: reuses readBuffer to avoid per-frame allocation.
+ * Performance: uses a single readBuffer for the lifetime of the recording.
+ * AudioFrame.fromBuffer() extracts features in-place without copying.
  */
 class AudioRecorderEngine(private val context: Context) {
 
@@ -69,11 +69,8 @@ class AudioRecorderEngine(private val context: Context) {
             if (minBuf != AudioRecord.ERROR_BAD_VALUE && minBuf != AudioRecord.ERROR) {
                 try {
                     val testRecord = AudioRecord(
-                        MediaRecorder.AudioSource.MIC,
-                        rate,
-                        CHANNEL_CONFIG,
-                        AUDIO_FORMAT,
-                        minBuf * 2
+                        MediaRecorder.AudioSource.MIC, rate,
+                        CHANNEL_CONFIG, AUDIO_FORMAT, minBuf * 2
                     )
                     if (testRecord.state == AudioRecord.STATE_INITIALIZED) {
                         testRecord.release()
@@ -86,10 +83,6 @@ class AudioRecorderEngine(private val context: Context) {
         return 16000
     }
 
-    /**
-     * Start audio capture. This initializes AudioRecord and reveals the real sampleRate.
-     * Must be called BEFORE createSession so the session records the actual sampleRate.
-     */
     fun start(callback: Callback) {
         if (isRecording) {
             Log.w(TAG, "Already recording")
@@ -114,15 +107,12 @@ class AudioRecorderEngine(private val context: Context) {
         }
 
         bufferSize = minBufferSize * 4
-        val frameSizeBytes = sampleRate * DEFAULT_FRAME_DURATION_MS / 1000 * 2
+        val frameSizeSamples = sampleRate * DEFAULT_FRAME_DURATION_MS / 1000
 
         try {
             audioRecord = AudioRecord(
-                MediaRecorder.AudioSource.MIC,
-                sampleRate,
-                CHANNEL_CONFIG,
-                AUDIO_FORMAT,
-                bufferSize
+                MediaRecorder.AudioSource.MIC, sampleRate,
+                CHANNEL_CONFIG, AUDIO_FORMAT, bufferSize
             )
 
             if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
@@ -135,17 +125,18 @@ class AudioRecorderEngine(private val context: Context) {
             audioRecord?.startRecording()
             isRecording = true
 
-            // P1: Reuse a single readBuffer, pass to extractor without retaining
+            // Single readBuffer reused for entire recording lifetime.
+            // Read into buffer, then extract features in-place via offset+length.
+            // No per-frame ShortArray allocation.
             recordingJob = scope.launch {
-                val readBuffer = ShortArray(frameSizeBytes / 2)
-                Log.i(TAG, "Recording started: rate=$sampleRate, bufSize=$bufferSize, frameSize=${readBuffer.size}")
+                val readBuffer = ShortArray(frameSizeSamples)
+                Log.i(TAG, "Recording started: rate=$sampleRate, bufSize=$bufferSize, frameSamples=$frameSizeSamples")
 
                 while (isActive && isRecording) {
                     val read = audioRecord?.read(readBuffer, 0, readBuffer.size) ?: -1
                     if (read > 0) {
-                        // P1: Only copy if partial read, otherwise use readBuffer directly
-                        val samples = if (read == readBuffer.size) readBuffer else readBuffer.copyOf(read)
-                        val frame = AudioFrame.fromRawSamples(samples)
+                        // Zero-copy: pass buffer + offset + length
+                        val frame = AudioFrame.fromBuffer(readBuffer, 0, read)
                         callback.onFrameCaptured(frame)
                     } else if (read < 0) {
                         readErrorCount++

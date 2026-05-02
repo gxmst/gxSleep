@@ -13,6 +13,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -181,6 +182,39 @@ fun SettingsScreen(
                         checked = settings.enableDebugMetrics,
                         onCheckedChange = { enabled ->
                             scope.launch { settingsDataStore.updateDebugMetrics(enabled) }
+                        }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // WakeLock experimental
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("实验 WakeLock", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            text = "默认关闭。前台服务是主要保活机制。仅在锁屏录制中断时开启。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = settings.enableWakeLock,
+                        onCheckedChange = { enabled ->
+                            scope.launch { settingsDataStore.updateWakeLock(enabled) }
                         }
                     )
                 }

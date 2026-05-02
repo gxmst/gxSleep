@@ -77,6 +77,43 @@
 3. 点击安装（需要开启"允许安装未知来源应用"）
 4. 首次启动时授予麦克风和通知权限
 
+### 小米手机安装步骤
+
+小米手机安装第三方 APK 需要额外步骤：
+
+1. 将 `app-debug.apk` 传到手机
+2. 打开「文件管理」找到 apk 文件
+3. 点击安装，如果提示"禁止安装未知来源应用"
+4. 点击「设置」> 开启「允许来自此来源的应用」
+5. 返回安装界面完成安装
+6. 首次启动时授予所有权限
+
+### GitHub Actions 构建失败排查
+
+如果 Actions 显示 **In progress** 超过 10 分钟或失败：
+
+1. **查看日志**
+   - 进入仓库 > Actions 标签 > 点击失败的构建
+   - 点击 `build` job 展开步骤
+   - 红色 ❌ 标记的步骤就是失败点
+   - 点击该步骤查看完整错误日志
+
+2. **常见失败原因**
+   - `gradlew: Permission denied` → workflow 缺少 `chmod +x ./gradlew`
+   - `Could not find or load main class` → gradle-wrapper.jar 缺失
+   - `SDK not found` → 需要检查 compileSdk 版本
+   - `OutOfMemoryError` → Gradle 内存不足，一般不会发生
+
+3. **重新运行**
+   - 在失败的构建页面点击 **Re-run all jobs**
+   - 或者重新触发 `workflow_dispatch`
+
+4. **本地验证**
+   ```bash
+   ./gradlew :app:assembleDebug --stacktrace
+   ```
+   如果本地成功但 Actions 失败，通常是环境差异问题
+
 ### 本地构建（可选）
 
 如果需要本地构建，需要 JDK 17+ 和 Android SDK 35：
@@ -87,7 +124,7 @@ git clone https://github.com/gxmst/gxSleep.git
 cd gxSleep
 
 # 构建 Debug APK
-./gradlew assembleDebug
+./gradlew :app:assembleDebug --stacktrace
 
 # APK 位置
 # app/build/outputs/apk/debug/app-debug.apk
@@ -187,6 +224,8 @@ cd gxSleep
    - 设置 > 电池与性能 > 省电策略 > 选择"无限制"
 
 **注意**：不同 MIUI/HyperOS 版本的菜单位置可能不同。
+
+**WakeLock 说明**：App 默认不持有 WakeLock，前台服务是主要保活机制。如果锁屏录制中断（可在调试页面确认），可在设置中开启「实验 WakeLock」。开启后会增加少量耗电。
 
 ## 已知限制
 

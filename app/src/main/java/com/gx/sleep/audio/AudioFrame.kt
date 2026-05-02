@@ -3,7 +3,8 @@ package com.gx.sleep.audio
 /**
  * Lightweight audio frame containing only extracted features.
  * No raw samples stored to minimize GC pressure.
- * If audio clip saving is needed in the future, use a separate AudioRingBuffer.
+ * Features are extracted directly from the AudioRecord readBuffer
+ * without any array copy.
  */
 data class AudioFrame(
     val timestamp: Long,
@@ -17,14 +18,16 @@ data class AudioFrame(
 ) {
     companion object {
         /**
-         * Extract features from raw samples and return a lightweight frame.
-         * The samples array is NOT retained.
+         * Extract features directly from a shared read buffer region.
+         * No array copy occurs. The buffer is NOT retained.
          */
-        fun fromRawSamples(
-            samples: ShortArray,
+        fun fromBuffer(
+            buffer: ShortArray,
+            offset: Int,
+            length: Int,
             timestamp: Long = System.currentTimeMillis()
         ): AudioFrame {
-            val features = AudioFeatureExtractor.extract(samples)
+            val features = AudioFeatureExtractor.extract(buffer, offset, length)
             return AudioFrame(
                 timestamp = timestamp,
                 rms = features.rms,

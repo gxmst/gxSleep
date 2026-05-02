@@ -32,7 +32,6 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import java.util.concurrent.CopyOnWriteArrayList
 
 class SleepRecordingService : Service() {
 
@@ -61,6 +60,9 @@ class SleepRecordingService : Service() {
 
         private val _wakeLockHeld = MutableStateFlow(false)
         val wakeLockHeld: StateFlow<Boolean> = _wakeLockHeld.asStateFlow()
+
+        private val _wakeLockEnabled = MutableStateFlow(false)
+        val wakeLockEnabled: StateFlow<Boolean> = _wakeLockEnabled.asStateFlow()
 
         fun startService(context: Context) {
             val intent = Intent(context, SleepRecordingService::class.java).apply {
@@ -95,14 +97,20 @@ class SleepRecordingService : Service() {
     private var eventDetector: SoundEventDetector? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    private val sampleBuffer = CopyOnWriteArrayList<SoundSampleEntity>()
-    private val eventBuffer = CopyOnWriteArrayList<SoundEventEntity>()
+    // P1: Synchronized ArrayList instead of CopyOnWriteArrayList.
+    // processFrame (hot path) does add() under lock which is O(1) amortized.
+    // flushBuffersToDb does toList()+clear() under lock.
+    private val sampleBufferLock = Any()
+    private val sampleBuffer = ArrayList<SoundSampleEntity>(256)
+    private val eventBufferLock = Any()
+    private val eventBuffer = ArrayList<SoundEventEntity>(32)
     private var dbWriteCount = 0
 
     private var currentSessionId: Long = 0
     private var recordingStartTime: Long = 0
     private var wakeLock: PowerManager.WakeLock? = null
-    private var framesInCurrentSecond = mutableListOf<AudioFrame>()
+    private var wakeLockAcquireTime: Long = 0
+    private val framesInCurrentSecond = ArrayList<AudioFrame>(25)
     private var currentSecondStartTime = 0L
     private var dbFlushJob: Job? = null
 
@@ -122,7 +130,6 @@ class SleepRecordingService : Service() {
             return START_NOT_STICKY
         }
 
-        // P0: Call startForeground() IMMEDIATELY before any heavy init
         if (!foregroundStarted) {
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -140,7 +147,6 @@ class SleepRecordingService : Service() {
                 foregroundStarted = true
             } catch (e: Exception) {
                 Log.e(TAG, "startForeground failed", e)
-                // Cannot continue without foreground
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -149,7 +155,6 @@ class SleepRecordingService : Service() {
         if (!_isRecording.value) {
             startRecording()
         }
-        // P0: START_NOT_STICKY prevents auto-restart after system kill
         return START_NOT_STICKY
     }
 
@@ -170,7 +175,6 @@ class SleepRecordingService : Service() {
     }
 
     private suspend fun initializeRecording() {
-        // Init lightweight components
         val app = application as GxSleepApp
         repository = SleepRepository(
             app.database.sleepSessionDao(),
@@ -181,13 +185,14 @@ class SleepRecordingService : Service() {
         debugMetrics = DebugMetricsCollector()
         audioEngine = AudioRecorderEngine(this)
 
-        // Mark any previously running sessions as crashed
         repository.markRunningSessionsAsCrashed()
 
         val settings = settingsDataStore.settings.first()
         eventDetector = SoundEventDetector(sensitivity = settings.sensitivity)
 
-        // P1: Start audio engine FIRST to get real sampleRate
+        // Publish WakeLock setting state for Debug screen
+        _wakeLockEnabled.value = settings.enableWakeLock
+
         audioEngine.start(object : AudioRecorderEngine.Callback {
             override fun onFrameCaptured(frame: AudioFrame) {
                 processFrame(frame)
@@ -215,7 +220,6 @@ class SleepRecordingService : Service() {
             return
         }
 
-        // P1: Create session with REAL sampleRate from AudioRecord
         val batteryPercent = DeviceInfoProvider.getBatteryPercent(this@SleepRecordingService)
         val deviceInfo = DeviceInfoProvider.getDeviceInfo()
         val sessionId = repository.createSession(
@@ -230,15 +234,18 @@ class SleepRecordingService : Service() {
         _sessionId.value = sessionId
         recordingStartTime = System.currentTimeMillis()
 
-        // Update notification to "recording" state
         notificationManager.updateToRecordingNotification()
 
-        acquireWakeLock()
+        // WakeLock: only acquire if user explicitly enabled it in settings
+        if (settings.enableWakeLock) {
+            acquireWakeLock()
+        }
+
         _isRecording.value = true
         debugMetrics.onRecordingStarted(audioEngine.sampleRate, audioEngine.bufferSize)
         startDbFlushJob()
 
-        Log.i(TAG, "Recording started, sessionId=$sessionId, sampleRate=${audioEngine.sampleRate}, bufSize=${audioEngine.bufferSize}")
+        Log.i(TAG, "Recording started, sessionId=$sessionId, sampleRate=${audioEngine.sampleRate}, wakeLock=${settings.enableWakeLock}")
     }
 
     private fun processFrame(frame: AudioFrame) {
@@ -262,34 +269,35 @@ class SleepRecordingService : Service() {
     }
 
     private fun aggregateAndBufferSecond() {
-        val frames = framesInCurrentSecond.toList()
-        framesInCurrentSecond.clear()
-
-        if (frames.isEmpty()) {
+        val count = framesInCurrentSecond.size
+        if (count == 0) {
             currentSecondStartTime = 0L
             return
         }
 
-        val avgRms = frames.map { it.rms }.average().toFloat()
-        val avgDbfs = frames.map { it.dbfs }.average().toFloat()
-        val maxPeak = frames.maxOf { it.peak }
-        val avgZcr = frames.map { it.zcr }.average().toFloat()
-        val avgLow = frames.map { it.lowBandEnergy }.average().toFloat()
-        val avgMid = frames.map { it.midBandEnergy }.average().toFloat()
-        val avgHigh = frames.map { it.highBandEnergy }.average().toFloat()
+        var sumRms = 0f; var sumDbfs = 0f; var maxPeak = 0f
+        var sumZcr = 0f; var sumLow = 0f; var sumMid = 0f; var sumHigh = 0f
+        for (f in framesInCurrentSecond) {
+            sumRms += f.rms; sumDbfs += f.dbfs
+            if (f.peak > maxPeak) maxPeak = f.peak
+            sumZcr += f.zcr; sumLow += f.lowBandEnergy
+            sumMid += f.midBandEnergy; sumHigh += f.highBandEnergy
+        }
+        framesInCurrentSecond.clear()
 
         val sample = SoundSampleEntity(
             sessionId = currentSessionId,
             timestamp = currentSecondStartTime,
-            rms = avgRms,
-            dbfs = avgDbfs,
+            rms = sumRms / count,
+            dbfs = sumDbfs / count,
             peak = maxPeak,
-            zcr = avgZcr,
-            lowBandEnergy = avgLow,
-            midBandEnergy = avgMid,
-            highBandEnergy = avgHigh
+            zcr = sumZcr / count,
+            lowBandEnergy = sumLow / count,
+            midBandEnergy = sumMid / count,
+            highBandEnergy = sumHigh / count
         )
-        sampleBuffer.add(sample)
+
+        synchronized(sampleBufferLock) { sampleBuffer.add(sample) }
         debugMetrics.onSampleBuffered()
         currentSecondStartTime = 0L
     }
@@ -306,8 +314,10 @@ class SleepRecordingService : Service() {
             maxDbfs = event.maxDbfs,
             audioClipPath = null
         )
-        eventBuffer.add(entity)
-        _eventCount.value = eventBuffer.size
+        synchronized(eventBufferLock) { eventBuffer.add(entity) }
+        // Read size under lock for accuracy
+        val count = synchronized(eventBufferLock) { eventBuffer.size }
+        _eventCount.value = count
         debugMetrics.onEventDetected()
     }
 
@@ -321,22 +331,32 @@ class SleepRecordingService : Service() {
     }
 
     private suspend fun flushBuffersToDb() {
-        if (sampleBuffer.isNotEmpty()) {
-            val toWrite = sampleBuffer.toList()
+        // Atomic snapshot + clear under lock
+        val samplesToWrite: List<SoundSampleEntity> = synchronized(sampleBufferLock) {
+            if (sampleBuffer.isEmpty()) return@synchronized emptyList()
+            val copy = sampleBuffer.toList()
             sampleBuffer.clear()
+            copy
+        }
+        if (samplesToWrite.isNotEmpty()) {
             try {
-                repository.insertSamples(toWrite)
+                repository.insertSamples(samplesToWrite)
                 dbWriteCount++
                 debugMetrics.onDbWrite()
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to write samples", e)
             }
         }
-        if (eventBuffer.isNotEmpty()) {
-            val toWrite = eventBuffer.toList()
+
+        val eventsToWrite: List<SoundEventEntity> = synchronized(eventBufferLock) {
+            if (eventBuffer.isEmpty()) return@synchronized emptyList()
+            val copy = eventBuffer.toList()
             eventBuffer.clear()
+            copy
+        }
+        if (eventsToWrite.isNotEmpty()) {
             try {
-                repository.insertEvents(toWrite)
+                repository.insertEvents(eventsToWrite)
                 dbWriteCount++
                 debugMetrics.onDbWrite()
             } catch (e: Exception) {
@@ -346,43 +366,28 @@ class SleepRecordingService : Service() {
     }
 
     private fun stopRecording() {
-        // P2: Use a dedicated scope that won't be cancelled prematurely
         val stopScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         stopScope.launch {
             Log.i(TAG, "Stopping recording, sessionId=$currentSessionId")
 
             try {
-                // Flush remaining event
                 val lastEvent = eventDetector?.flush()
-                if (lastEvent != null) {
-                    handleDetectedEvent(lastEvent)
-                }
-
-                // Aggregate remaining frames
-                if (framesInCurrentSecond.isNotEmpty()) {
-                    aggregateAndBufferSecond()
-                }
+                if (lastEvent != null) handleDetectedEvent(lastEvent)
+                if (framesInCurrentSecond.isNotEmpty()) aggregateAndBufferSecond()
             } catch (e: Exception) {
                 Log.e(TAG, "Error flushing final data", e)
             }
 
-            // Stop audio engine (releases AudioRecord)
-            try {
-                audioEngine.stop()
-            } catch (e: Exception) {
+            try { audioEngine.stop() } catch (e: Exception) {
                 Log.e(TAG, "Error stopping audio engine", e)
             }
 
             _isRecording.value = false
 
-            // P2: Flush ALL remaining buffers to DB before completing session
-            try {
-                flushBuffersToDb()
-            } catch (e: Exception) {
+            try { flushBuffersToDb() } catch (e: Exception) {
                 Log.e(TAG, "Error flushing buffers", e)
             }
 
-            // Complete session
             try {
                 if (currentSessionId > 0) {
                     val batteryPercent = DeviceInfoProvider.getBatteryPercent(this@SleepRecordingService)
@@ -395,12 +400,8 @@ class SleepRecordingService : Service() {
             releaseWakeLock()
             debugMetrics.onRecordingStopped()
 
-            // P2: stopForeground then stopSelf
-            try {
-                stopForeground(STOP_FOREGROUND_REMOVE)
-            } catch (_: Exception) {}
+            try { stopForeground(STOP_FOREGROUND_REMOVE) } catch (_: Exception) {}
             stopSelf()
-
             stopScope.cancel()
             Log.i(TAG, "Recording stopped, dbWrites=$dbWriteCount")
         }
@@ -413,10 +414,11 @@ class SleepRecordingService : Service() {
                 PowerManager.PARTIAL_WAKE_LOCK,
                 "gxSleep::RecordingWakeLock"
             ).apply {
-                acquire(8 * 60 * 60 * 1000L)
+                acquire(8 * 60 * 60 * 1000L) // 8h safety max
             }
+            wakeLockAcquireTime = System.currentTimeMillis()
             _wakeLockHeld.value = true
-            Log.i(TAG, "WakeLock acquired")
+            Log.i(TAG, "WakeLock acquired (experimental, enabled by user)")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to acquire WakeLock", e)
         }
@@ -427,7 +429,7 @@ class SleepRecordingService : Service() {
             wakeLock?.let {
                 if (it.isHeld) {
                     it.release()
-                    Log.i(TAG, "WakeLock released")
+                    Log.i(TAG, "WakeLock released, held for ${(System.currentTimeMillis() - wakeLockAcquireTime) / 1000}s")
                 }
             }
         } catch (_: Exception) {}
@@ -436,7 +438,6 @@ class SleepRecordingService : Service() {
     }
 
     override fun onDestroy() {
-        // P0: Mark session as crashed if still recording when service is destroyed
         if (_isRecording.value && currentSessionId > 0) {
             try {
                 if (::repository.isInitialized) {

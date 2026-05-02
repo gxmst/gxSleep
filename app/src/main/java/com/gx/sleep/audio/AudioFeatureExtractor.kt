@@ -16,8 +16,8 @@ data class AudioFeatures(
 
 /**
  * Extracts audio features from raw PCM 16-bit samples.
- * All processing is done on the calling thread (should be background thread).
- * Optimized for low CPU usage.
+ * Operates directly on a shared buffer region [offset, offset+length)
+ * to avoid per-frame array allocation.
  *
  * NOTE: Band energy estimation uses a lightweight heuristic approach,
  * NOT a precise FFT-based frequency analysis. The low/mid/high ratios
@@ -28,18 +28,21 @@ object AudioFeatureExtractor {
 
     private const val MAX_AMPLITUDE = 32768f
 
-    fun extract(samples: ShortArray): AudioFeatures {
-        if (samples.isEmpty()) {
+    /**
+     * Extract features from a region of a ShortArray without copying.
+     */
+    fun extract(buffer: ShortArray, offset: Int, length: Int): AudioFeatures {
+        if (length <= 0) {
             return AudioFeatures(0f, -120f, 0f, 0f, 0f, 0f, 0f)
         }
 
         var sumSquares = 0.0
         var peakValue = 0
         var zeroCrossings = 0
-        var prevSample = samples[0]
+        var prevSample = buffer[offset]
 
-        for (i in samples.indices) {
-            val s = samples[i].toInt()
+        for (i in 0 until length) {
+            val s = buffer[offset + i].toInt()
             sumSquares += s.toDouble() * s.toDouble()
             val absVal = abs(s)
             if (absVal > peakValue) peakValue = absVal
@@ -49,12 +52,12 @@ object AudioFeatureExtractor {
             prevSample = s
         }
 
-        val rms = sqrt(sumSquares / samples.size).toFloat()
+        val rms = sqrt(sumSquares / length).toFloat()
         val dbfs = if (rms > 0) 20f * log10(rms / MAX_AMPLITUDE) else -120f
         val peak = peakValue / MAX_AMPLITUDE
-        val zcr = zeroCrossings.toFloat() / samples.size
+        val zcr = zeroCrossings.toFloat() / length
 
-        val bandEnergies = estimateBandEnergies(samples)
+        val bandEnergies = estimateBandEnergies(buffer, offset, length)
 
         return AudioFeatures(
             rms = rms,
@@ -67,33 +70,17 @@ object AudioFeatureExtractor {
         )
     }
 
-    /**
-     * Lightweight 3-band energy estimation using running-average low-pass filters.
-     *
-     * This is a HEURISTIC approach, not a precise FFT-based frequency decomposition.
-     * It uses three running averages with different window sizes to approximate
-     * the energy in low, mid, and high frequency bands:
-     *
-     * - Low band: slow-moving average (captures low-frequency envelope)
-     * - Mid band: energy in the residual after removing low and high
-     * - High band: first-difference energy (captures high-frequency transients)
-     *
-     * The ratios are normalized to sum to 1.0 and are suitable for relative
-     * comparison within a single event, not for absolute frequency measurement.
-     */
-    private fun estimateBandEnergies(samples: ShortArray): FloatArray {
-        val n = samples.size
-        if (n < 10) return floatArrayOf(0.33f, 0.33f, 0.34f)
+    private fun estimateBandEnergies(buffer: ShortArray, offset: Int, length: Int): FloatArray {
+        if (length < 10) return floatArrayOf(0.33f, 0.33f, 0.34f)
 
         // Low band: energy of slow-moving average (large window)
-        // Approximates content below ~300Hz at 16kHz sample rate
         var lowEnergy = 0.0
-        val lowWindowSize = (n / 3).coerceAtLeast(3)
+        val lowWindowSize = (length / 3).coerceAtLeast(3)
         var lowSum = 0.0
-        for (i in samples.indices) {
-            lowSum += samples[i]
+        for (i in 0 until length) {
+            lowSum += buffer[offset + i]
             if (i >= lowWindowSize) {
-                lowSum -= samples[i - lowWindowSize]
+                lowSum -= buffer[offset + i - lowWindowSize]
             }
             if (i >= lowWindowSize - 1) {
                 val avg = lowSum / lowWindowSize
@@ -101,25 +88,22 @@ object AudioFeatureExtractor {
             }
         }
 
-        // High band: energy of first-difference (adjacent sample differences)
-        // Captures rapid changes / high frequency content
+        // High band: energy of first-difference
         var highEnergy = 0.0
-        for (j in 1 until n) {
-            val diff = samples[j] - samples[j - 1]
+        for (j in 1 until length) {
+            val diff = buffer[offset + j] - buffer[offset + j - 1]
             highEnergy += diff.toDouble() * diff.toDouble()
         }
-        // Scale high energy to be comparable (difference has different magnitude)
         highEnergy *= 0.25
 
-        // Total signal energy (sum of squares)
+        // Total signal energy
         var totalEnergy = 0.0
-        for (s in samples) {
-            totalEnergy += s.toDouble() * s.toDouble()
+        for (i in 0 until length) {
+            val s = buffer[offset + i].toDouble()
+            totalEnergy += s * s
         }
 
-        // Mid band: residual energy not captured by low or high
         val midEnergy = (totalEnergy - lowEnergy - highEnergy).coerceAtLeast(0.0)
-
         val sum = lowEnergy + midEnergy + highEnergy
         return if (sum > 0) {
             floatArrayOf(
