@@ -68,12 +68,23 @@ fun RecordingScreen(
     val sessionId by SleepRecordingService.sessionId.collectAsState()
 
     var showStopDialog by remember { mutableStateOf(false) }
+    // P1: Track whether we ever saw recording=true on this page.
+    // Only navigate to report after a true->false transition, not on initial false.
+    var hasSeenRecording by remember { mutableStateOf(false) }
 
-    // When recording stops (isRecording becomes false) and we have a sessionId,
-    // auto-navigate to report
     LaunchedEffect(isRecording) {
-        if (!isRecording && sessionId != null && sessionId!! > 0) {
-            onStopAndShowReport(sessionId!!)
+        if (isRecording) {
+            hasSeenRecording = true
+        }
+    }
+
+    // P1: Listen for recordingCompleted event (emitted after DB flush + completeSession).
+    // This is the safe time to navigate to the report.
+    LaunchedEffect(Unit) {
+        SleepRecordingService.recordingCompleted.collect { completedSessionId ->
+            if (completedSessionId > 0) {
+                onStopAndShowReport(completedSessionId)
+            }
         }
     }
 
@@ -86,7 +97,7 @@ fun RecordingScreen(
             onConfirm = {
                 showStopDialog = false
                 SleepRecordingService.stopService(context)
-                // Don't navigate yet - wait for isRecording to become false
+                // Don't navigate yet — wait for recordingCompleted event
             },
             onDismiss = { showStopDialog = false }
         )

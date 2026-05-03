@@ -109,18 +109,34 @@ fun SessionListScreen(
         } else {
             // P2: Filter out RUNNING sessions - they have no valid report data
             val completedSessions = sessions.filter { it.status != SessionStatus.RUNNING }
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(SleepDimens.itemGap)
-            ) {
-                items(completedSessions, key = { it.id }) { session ->
-                    SessionListItem(
-                        session = session,
-                        dateFormat = dateFormat,
-                        onClick = { onSessionClick(session.id) },
-                        onDelete = { showDeleteDialog = session.id }
-                    )
+            if (completedSessions.isEmpty()) {
+                // P3: Only RUNNING sessions exist — show recording hint, not empty
+                EmptyState(
+                    icon = {
+                        Icon(
+                            Icons.Outlined.History,
+                            contentDescription = null,
+                            modifier = Modifier.size(48.dp),
+                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                        )
+                    },
+                    title = "正在录制中",
+                    subtitle = "完成录制后这里会显示历史记录"
+                )
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(SleepDimens.itemGap)
+                ) {
+                    items(completedSessions, key = { it.id }) { session ->
+                        SessionListItem(
+                            session = session,
+                            dateFormat = dateFormat,
+                            onClick = { onSessionClick(session.id) },
+                            onDelete = { showDeleteDialog = session.id }
+                        )
+                    }
+                    item { Spacer(modifier = Modifier.height(16.dp)) }
                 }
-                item { Spacer(modifier = Modifier.height(16.dp)) }
             }
         }
     }

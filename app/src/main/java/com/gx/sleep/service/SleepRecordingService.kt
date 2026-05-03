@@ -66,6 +66,11 @@ class SleepRecordingService : Service() {
         private val _wakeLockEnabled = MutableStateFlow(false)
         val wakeLockEnabled: StateFlow<Boolean> = _wakeLockEnabled.asStateFlow()
 
+        // P1: Emitted after session is fully flushed and completed in DB.
+        // UI should navigate to report only after this event, not on isRecording=false.
+        private val _recordingCompleted = MutableSharedFlow<Long>(extraBufferCapacity = 1)
+        val recordingCompleted: SharedFlow<Long> = _recordingCompleted.asSharedFlow()
+
         fun startService(context: Context) {
             val intent = Intent(context, SleepRecordingService::class.java).apply {
                 action = ACTION_START
@@ -415,6 +420,8 @@ class SleepRecordingService : Service() {
      * 1. Block new frames (acceptingFrames = false)
      * 2. Stop audio engine — this cancels the recording job, so no more callbacks
      * 3. Now safe to flush detector + remaining frames + buffers
+     * 4. Complete session in DB
+     * 5. Only THEN set _isRecording = false and emit recordingCompleted
      */
     private fun stopRecording() {
         val capturedSessionId = currentSessionId
@@ -424,13 +431,12 @@ class SleepRecordingService : Service() {
             // Step 1: Block new frames immediately
             acceptingFrames = false
 
-            // Step 2: Stop audio engine — this cancels the recording coroutine,
-            // guaranteeing no more onFrameCaptured callbacks after this returns
+            // Step 2: Stop audio engine
             try { audioEngine.stop() } catch (e: Exception) {
                 Log.e(TAG, "Error stopping audio engine", e)
             }
 
-            // Step 3: Now safe to flush everything (no concurrent access)
+            // Step 3: Flush everything
             try {
                 val lastEvent = eventDetector?.flush()
                 if (lastEvent != null) handleDetectedEvent(lastEvent)
@@ -439,8 +445,7 @@ class SleepRecordingService : Service() {
                 Log.e(TAG, "Error flushing final data", e)
             }
 
-            _isRecording.value = false
-
+            // Step 4: Flush buffers to DB, then complete session
             try { flushBuffersToDb() } catch (e: Exception) {
                 Log.e(TAG, "Error flushing buffers", e)
             }
@@ -453,6 +458,10 @@ class SleepRecordingService : Service() {
             } catch (e: Exception) {
                 Log.e(TAG, "Error completing session", e)
             }
+
+            // Step 5: NOW signal completion — data is ready in DB
+            _isRecording.value = false
+            _recordingCompleted.tryEmit(capturedSessionId)
 
             releaseWakeLock()
             debugMetrics.onRecordingStopped()

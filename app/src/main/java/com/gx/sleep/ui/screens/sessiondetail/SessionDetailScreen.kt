@@ -285,7 +285,12 @@ private fun EventTimelineItem(
 ) {
     val color = EventColors.forType(event.type.name)
     val label = EventColors.labelFor(event.type.name)
-    val durationSec = event.durationMs / 1000
+    // P3: Format duration properly - show "<1秒" for short events
+    val durationText = when {
+        event.durationMs < 1000 -> "<1秒"
+        event.durationMs < 10000 -> "%.1f秒".format(event.durationMs / 1000f)
+        else -> "${event.durationMs / 1000}秒"
+    }
 
     Card(
         onClick = onClick,
@@ -315,7 +320,7 @@ private fun EventTimelineItem(
                     fontWeight = FontWeight.Medium
                 )
                 Text(
-                    text = "${timeFmt.format(Date(event.startTime))} · ${durationSec}秒",
+                    text = "${timeFmt.format(Date(event.startTime))} · $durationText",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
