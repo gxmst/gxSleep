@@ -1,5 +1,6 @@
 package com.gx.sleep.ui.screens.sessionlist
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,14 +18,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.outlined.History
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -34,11 +33,17 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gx.sleep.data.local.entity.SessionStatus
 import com.gx.sleep.data.local.entity.SleepSessionEntity
+import com.gx.sleep.ui.components.ConfirmDialog
+import com.gx.sleep.ui.components.EmptyState
+import com.gx.sleep.ui.components.SleepDimens
+import com.gx.sleep.ui.components.StatusBadge
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -55,75 +60,55 @@ fun SessionListScreen(
     val dateFormat = SimpleDateFormat("M月d日 HH:mm", Locale.CHINESE)
 
     if (showDeleteDialog != null) {
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = null },
-            title = { Text("删除记录") },
-            text = { Text("确定要删除这条记录吗？") },
-            confirmButton = {
-                TextButton(onClick = {
-                    scope.launch { showDeleteDialog?.let { viewModel.deleteSession(it) } }
-                    showDeleteDialog = null
-                }) {
-                    Text("删除", color = MaterialTheme.colorScheme.error)
-                }
+        ConfirmDialog(
+            title = "删除记录",
+            message = "确定要删除这条记录吗？删除后无法恢复。",
+            confirmText = "删除",
+            isDanger = true,
+            onConfirm = {
+                scope.launch { showDeleteDialog?.let { viewModel.deleteSession(it) } }
+                showDeleteDialog = null
             },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = null }) {
-                    Text("取消")
-                }
-            }
+            onDismiss = { showDeleteDialog = null }
         )
     }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 20.dp)
-            .padding(top = 48.dp)
+            .padding(horizontal = SleepDimens.screenPaddingH)
+            .padding(top = SleepDimens.screenPaddingTop, bottom = SleepDimens.screenPaddingBottom)
     ) {
         Text(
             text = "历史记录",
-            style = MaterialTheme.typography.headlineLarge,
+            style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold
         )
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = "查看每晚的睡眠声音记录",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(SleepDimens.sectionGap))
 
         if (sessions.isEmpty()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 64.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Icon(
-                    Icons.Outlined.History,
-                    contentDescription = null,
-                    modifier = Modifier.size(48.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = "还没有记录",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "开始第一次睡眠记录吧",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                )
-            }
+            EmptyState(
+                icon = {
+                    Icon(
+                        Icons.Outlined.History,
+                        contentDescription = null,
+                        modifier = Modifier.size(48.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                    )
+                },
+                title = "还没有记录",
+                subtitle = "开始第一次睡眠记录吧"
+            )
         } else {
             LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(SleepDimens.itemGap)
             ) {
                 items(sessions, key = { it.id }) { session ->
                     SessionListItem(
@@ -154,46 +139,36 @@ private fun SessionListItem(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
+        shape = RoundedCornerShape(SleepDimens.cardRadius),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
-        ),
-        shape = RoundedCornerShape(16.dp)
+        )
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(SleepDimens.cardPadding),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = dateFormat.format(Date(session.startTime)),
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.SemiBold
                 )
-                Spacer(modifier = Modifier.height(4.dp))
-
-                val statusText = when (session.status) {
-                    SessionStatus.COMPLETED -> "记录完成"
-                    SessionStatus.CRASHED -> "意外中断"
-                    SessionStatus.RUNNING -> "记录中"
-                    SessionStatus.STOPPED_BY_SYSTEM -> "系统停止"
-                }
-                val statusColor = when (session.status) {
-                    SessionStatus.CRASHED -> MaterialTheme.colorScheme.error
-                    SessionStatus.RUNNING -> MaterialTheme.colorScheme.primary
-                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                }
-
+                Spacer(modifier = Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = statusText,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = statusColor
-                    )
+                    val (statusText, statusColor) = when (session.status) {
+                        SessionStatus.COMPLETED -> "记录完成" to Color(0xFF60C080)
+                        SessionStatus.CRASHED -> "意外中断" to MaterialTheme.colorScheme.error
+                        SessionStatus.RUNNING -> "记录中" to MaterialTheme.colorScheme.primary
+                        SessionStatus.STOPPED_BY_SYSTEM -> "系统停止" to Color(0xFFE8A040)
+                    }
+                    StatusBadge(text = statusText, color = statusColor)
                     if (session.duration > 0) {
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = " · $durationText",
+                            text = durationText,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -204,7 +179,7 @@ private fun SessionListItem(
                 Icon(
                     Icons.Default.Delete,
                     contentDescription = "删除",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
                     modifier = Modifier.size(20.dp)
                 )
             }

@@ -11,43 +11,52 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
-// Soft indigo-purple palette for sleep app
+// Warm dark palette with muted indigo + green/amber accents
 private val DarkColorScheme = darkColorScheme(
-    primary = Color(0xFFB8C4FF),
-    secondary = Color(0xFFC5CAE9),
-    tertiary = Color(0xFFD1C4E9),
-    background = Color(0xFF0D1117),
-    surface = Color(0xFF161B22),
-    surfaceVariant = Color(0xFF1C2333),
-    surfaceContainerLow = Color(0xFF1A1F2E),
-    surfaceContainer = Color(0xFF222839),
-    onPrimary = Color(0xFF1A237E),
-    onSecondary = Color(0xFF283593),
-    onBackground = Color(0xFFDCE0E8),
-    onSurface = Color(0xFFDCE0E8),
-    onSurfaceVariant = Color(0xFF8B92A0),
-    error = Color(0xFFEF9A9A),
-    primaryContainer = Color(0xFF1E2A4A),
-    onPrimaryContainer = Color(0xFFB8C4FF)
+    primary = Color(0xFFA8B8E8),
+    secondary = Color(0xFF8FB8A0),
+    tertiary = Color(0xFFD4B896),
+    background = Color(0xFF0C0F14),
+    surface = Color(0xFF141820),
+    surfaceVariant = Color(0xFF1B2030),
+    surfaceContainerLow = Color(0xFF161B26),
+    surfaceContainer = Color(0xFF1E2433),
+    surfaceContainerHigh = Color(0xFF252C3D),
+    onPrimary = Color(0xFF1A2340),
+    onSecondary = Color(0xFF1A3020),
+    onBackground = Color(0xFFD8DCE4),
+    onSurface = Color(0xFFD8DCE4),
+    onSurfaceVariant = Color(0xFF7A8294),
+    error = Color(0xFFE8A0A0),
+    primaryContainer = Color(0xFF1C2640),
+    onPrimaryContainer = Color(0xFFB8C8F0),
+    secondaryContainer = Color(0xFF1C2E22),
+    onSecondaryContainer = Color(0xFFA0D4B0),
+    tertiaryContainer = Color(0xFF2E2418),
+    onTertiaryContainer = Color(0xFFE0C8A0),
+    errorContainer = Color(0xFF2E1818),
+    onErrorContainer = Color(0xFFE8A0A0),
+    outline = Color(0xFF3A4050),
+    outlineVariant = Color(0xFF2A3040)
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = Color(0xFF3F51B5),
-    secondary = Color(0xFF5C6BC0),
-    tertiary = Color(0xFF7E57C2),
-    background = Color(0xFFF8F9FC),
+    primary = Color(0xFF3A5090),
+    secondary = Color(0xFF3A7050),
+    tertiary = Color(0xFF8A6830),
+    background = Color(0xFFF6F7FA),
     surface = Color(0xFFFFFFFF),
-    surfaceVariant = Color(0xFFEEF0F7),
+    surfaceVariant = Color(0xFFEDF0F6),
     onPrimary = Color.White,
     onSecondary = Color.White,
-    onBackground = Color(0xFF1C1B1F),
-    onSurface = Color(0xFF1C1B1F)
+    onBackground = Color(0xFF1A1D24),
+    onSurface = Color(0xFF1A1D24)
 )
 
 @Composable
 fun GxSleepTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = true,
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {
