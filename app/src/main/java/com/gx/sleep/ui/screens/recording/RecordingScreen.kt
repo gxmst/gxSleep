@@ -63,13 +63,13 @@ fun RecordingScreen(
 ) {
     val context = LocalContext.current
     val isRecording by SleepRecordingService.isRecording.collectAsState()
+    val isStopping by SleepRecordingService.isStopping.collectAsState()
     val currentRms by SleepRecordingService.currentRms.collectAsState()
     val eventCount by SleepRecordingService.eventCount.collectAsState()
     val sessionId by SleepRecordingService.sessionId.collectAsState()
 
     var showStopDialog by remember { mutableStateOf(false) }
     // P2: Only navigate to report when THIS page initiated the stop.
-    // Set to the session ID we expect completion for; cleared after navigation.
     var pendingStopSessionId by remember { mutableStateOf<Long?>(null) }
 
     // P1: Listen for recordingCompleted — only navigate if we initiated the stop
@@ -234,14 +234,17 @@ fun RecordingScreen(
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 OutlinedButton(
-                    onClick = { showStopDialog = true },
+                    onClick = { if (!isStopping) showStopDialog = true },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp),
                     shape = RoundedCornerShape(14.dp),
-                    enabled = isRecording
+                    enabled = isRecording && !isStopping
                 ) {
-                    Text("停止记录", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        text = if (isStopping) "正在生成报告..." else "停止记录",
+                        style = MaterialTheme.typography.titleMedium
+                    )
                 }
             }
         }

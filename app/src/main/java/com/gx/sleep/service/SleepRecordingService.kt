@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
 
 class SleepRecordingService : Service() {
 
@@ -71,6 +72,10 @@ class SleepRecordingService : Service() {
         private val _recordingCompleted = MutableSharedFlow<Long>(extraBufferCapacity = 1)
         val recordingCompleted: SharedFlow<Long> = _recordingCompleted.asSharedFlow()
 
+        // P2: Exposed so UI can disable stop button during stop sequence
+        private val _isStopping = MutableStateFlow(false)
+        val isStopping: StateFlow<Boolean> = _isStopping.asStateFlow()
+
         fun startService(context: Context) {
             val intent = Intent(context, SleepRecordingService::class.java).apply {
                 action = ACTION_START
@@ -105,6 +110,9 @@ class SleepRecordingService : Service() {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val stopScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    // P1: Mutex serializes processFrame and final flush to prevent concurrent access
+    private val frameMutex = Mutex()
+
     private val sampleBufferLock = Any()
     private val sampleBuffer = ArrayList<SoundSampleEntity>(256)
     private val eventBufferLock = Any()
@@ -129,6 +137,10 @@ class SleepRecordingService : Service() {
     @Volatile
     private var acceptingFrames = false
 
+    // P2: Idempotency guard for stopRecording
+    @Volatile
+    private var isStopping = false
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -138,7 +150,9 @@ class SleepRecordingService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            stopRecording()
+            if (!isStopping) {
+                stopRecording()
+            }
             return START_NOT_STICKY
         }
 
@@ -264,22 +278,29 @@ class SleepRecordingService : Service() {
     }
 
     private fun processFrame(frame: AudioFrame) {
-        _currentRms.value = frame.rms
-        _currentDbfs.value = frame.dbfs
-        debugMetrics.onFrameProcessed()
+        // P1: Mutex ensures final flush doesn't race with in-flight callbacks.
+        // tryLock means if stop is flushing, we silently drop this frame (acceptable).
+        if (!frameMutex.tryLock()) return
+        try {
+            _currentRms.value = frame.rms
+            _currentDbfs.value = frame.dbfs
+            debugMetrics.onFrameProcessed()
 
-        if (currentSecondStartTime == 0L) {
-            currentSecondStartTime = frame.timestamp
-        }
-        framesInCurrentSecond.add(frame)
+            if (currentSecondStartTime == 0L) {
+                currentSecondStartTime = frame.timestamp
+            }
+            framesInCurrentSecond.add(frame)
 
-        if (frame.timestamp - currentSecondStartTime >= 1000) {
-            aggregateAndBufferSecond()
-        }
+            if (frame.timestamp - currentSecondStartTime >= 1000) {
+                aggregateAndBufferSecond()
+            }
 
-        val event = eventDetector?.feedFrame(frame)
-        if (event != null) {
-            handleDetectedEvent(event)
+            val event = eventDetector?.feedFrame(frame)
+            if (event != null) {
+                handleDetectedEvent(event)
+            }
+        } finally {
+            frameMutex.unlock()
         }
     }
 
@@ -340,17 +361,18 @@ class SleepRecordingService : Service() {
         dbFlushJob = scope.launch {
             while (_isRecording.value) {
                 kotlinx.coroutines.delay(10_000)
-                flushBuffersToDb()
+                try { flushBuffersToDb() } catch (_: Exception) {}
             }
         }
     }
 
     /**
      * P1: Clear-after-success with retry.
-     * On failure, requeue the batch at the front of the buffer and retry up to MAX_FLUSH_RETRIES.
-     * Only clears the buffer after a successful insert.
+     * Returns true if all batches were successfully written, false if any failed.
      */
-    private suspend fun flushBuffersToDb() {
+    private suspend fun flushBuffersToDb(): Boolean {
+        var allSuccess = true
+
         // Snapshot samples
         val samplesToWrite: List<SoundSampleEntity> = synchronized(sampleBufferLock) {
             if (sampleBuffer.isEmpty()) return@synchronized emptyList()
@@ -375,11 +397,11 @@ class SleepRecordingService : Service() {
                 }
             }
             if (!written) {
-                // Requeue at front so next flush picks them up
                 Log.w(TAG, "Requeuing ${samplesToWrite.size} samples after $MAX_FLUSH_RETRIES failures")
                 synchronized(sampleBufferLock) {
                     sampleBuffer.addAll(0, samplesToWrite)
                 }
+                allSuccess = false
             }
         }
 
@@ -411,65 +433,78 @@ class SleepRecordingService : Service() {
                 synchronized(eventBufferLock) {
                     eventBuffer.addAll(0, eventsToWrite)
                 }
+                allSuccess = false
             }
         }
+
+        return allSuccess
     }
 
     /**
-     * P1: Serialized stop sequence.
-     * 1. Block new frames (acceptingFrames = false)
-     * 2. Stop audio engine — this cancels the recording job, so no more callbacks
-     * 3. Now safe to flush detector + remaining frames + buffers
-     * 4. Complete session in DB
-     * 5. Only THEN set _isRecording = false and emit recordingCompleted
+     * P2: Idempotent stop — second call is a no-op.
+     * P1: Uses Mutex to wait for any in-flight processFrame to finish before flushing.
+     * P1: Only emits completion if flush AND completeSession both succeed.
      */
     private fun stopRecording() {
+        // P2: Idempotency guard
+        if (isStopping) {
+            Log.w(TAG, "stopRecording already in progress, ignoring duplicate call")
+            return
+        }
+        isStopping = true
+        _isStopping.value = true
+
         val capturedSessionId = currentSessionId
         stopScope.launch {
             Log.i(TAG, "Stopping recording, sessionId=$capturedSessionId")
 
-            // Step 1: Block new frames immediately
+            // Step 1: Block new frames
             acceptingFrames = false
 
-            // Step 2: Stop audio engine
+            // Step 2: Stop audio engine — cancels recording job
             try { audioEngine.stop() } catch (e: Exception) {
                 Log.e(TAG, "Error stopping audio engine", e)
             }
 
-            // Step 3: Flush everything
+            // Step 3: Acquire mutex — waits for any in-flight processFrame to finish
+            frameMutex.lock()
             try {
+                // Now safe to flush (no concurrent processFrame)
                 val lastEvent = eventDetector?.flush()
                 if (lastEvent != null) handleDetectedEvent(lastEvent)
                 if (framesInCurrentSecond.isNotEmpty()) aggregateAndBufferSecond()
-            } catch (e: Exception) {
-                Log.e(TAG, "Error flushing final data", e)
+            } finally {
+                frameMutex.unlock()
             }
 
-            // Step 4: Flush buffers to DB, then complete session
-            try { flushBuffersToDb() } catch (e: Exception) {
+            // Step 4: Flush buffers to DB
+            val flushOk = try { flushBuffersToDb() } catch (e: Exception) {
                 Log.e(TAG, "Error flushing buffers", e)
+                false
             }
 
-            var sessionCompleted = false
-            try {
-                if (capturedSessionId > 0) {
-                    val batteryPercent = DeviceInfoProvider.getBatteryPercent(this@SleepRecordingService)
-                    repository.completeSession(capturedSessionId, batteryPercent)
-                    sessionCompleted = true
+            // Step 5: Complete session
+            var completeOk = false
+            if (flushOk) {
+                try {
+                    if (capturedSessionId > 0) {
+                        val batteryPercent = DeviceInfoProvider.getBatteryPercent(this@SleepRecordingService)
+                        repository.completeSession(capturedSessionId, batteryPercent)
+                        completeOk = true
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error completing session", e)
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error completing session", e)
             }
 
-            // Step 5: Signal completion ONLY if session was successfully completed
+            // Step 6: Signal result
             _isRecording.value = false
-            if (sessionCompleted) {
+            if (flushOk && completeOk) {
                 _recordingCompleted.tryEmit(capturedSessionId)
             } else {
-                // Mark as crashed so history shows the issue
-                try {
-                    repository.markSessionCrashed(capturedSessionId)
-                } catch (_: Exception) {}
+                // Mark as crashed — data is incomplete
+                try { repository.markSessionCrashed(capturedSessionId) } catch (_: Exception) {}
+                Log.w(TAG, "Session marked CRASHED: flushOk=$flushOk, completeOk=$completeOk")
             }
 
             releaseWakeLock()
@@ -477,16 +512,18 @@ class SleepRecordingService : Service() {
 
             try { stopForeground(STOP_FOREGROUND_REMOVE) } catch (_: Exception) {}
 
-            try {
-                if (capturedSessionId > 0) {
+            if (flushOk && completeOk) {
+                try {
                     notificationManager.sendCompletionNotification(capturedSessionId)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error sending completion notification", e)
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error sending completion notification", e)
             }
 
             stopSelf()
-            Log.i(TAG, "Recording stopped, dbWrites=$dbWriteCount, totalEvents=$sessionEventCount")
+            isStopping = false
+            _isStopping.value = false
+            Log.i(TAG, "Recording stopped, flushOk=$flushOk, completeOk=$completeOk, dbWrites=$dbWriteCount")
         }
     }
 
