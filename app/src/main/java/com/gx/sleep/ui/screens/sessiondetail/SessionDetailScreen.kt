@@ -1,6 +1,5 @@
 package com.gx.sleep.ui.screens.sessiondetail
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -11,8 +10,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -34,17 +31,13 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.gx.sleep.ui.components.EventColors
 import com.gx.sleep.ui.components.EventTypeChip
 import com.gx.sleep.ui.components.SectionHeader
 import com.gx.sleep.ui.components.SleepCard
 import com.gx.sleep.ui.components.SleepDimens
-import com.gx.sleep.ui.components.StatusBadge
 import com.gx.sleep.ui.components.VolumeChart
 import java.text.SimpleDateFormat
 import java.util.Date
