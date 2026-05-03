@@ -115,9 +115,12 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private fun loadRecentSessions() {
         viewModelScope.launch {
             repository.getAllSessions().collectLatest { sessions ->
+                // sessions is ORDER BY startTime DESC (newest first)
+                // take(7) gets the 7 most recent; reversed() for oldest-first chart
                 val recent = sessions
                     .filter { it.status == SessionStatus.COMPLETED }
-                    .takeLast(7)
+                    .take(7)
+                    .reversed()
                     .map { session ->
                         repository.getEventsBySessionList(session.id).size
                     }

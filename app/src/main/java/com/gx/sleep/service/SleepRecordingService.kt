@@ -32,11 +32,13 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 class SleepRecordingService : Service() {
 
     companion object {
         private const val TAG = "SleepRecordingService"
+        private const val MAX_FLUSH_RETRIES = 3
         const val ACTION_STOP = RecordingNotificationManager.ACTION_STOP
         const val ACTION_START = "com.gx.sleep.ACTION_START_RECORDING"
 
@@ -98,14 +100,14 @@ class SleepRecordingService : Service() {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val stopScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    // P1: Synchronized ArrayList instead of CopyOnWriteArrayList.
-    // processFrame (hot path) does add() under lock which is O(1) amortized.
-    // flushBuffersToDb does toList()+clear() under lock.
     private val sampleBufferLock = Any()
     private val sampleBuffer = ArrayList<SoundSampleEntity>(256)
     private val eventBufferLock = Any()
     private val eventBuffer = ArrayList<SoundEventEntity>(32)
     private var dbWriteCount = 0
+
+    // P2: Session-level event counter that never resets during a session
+    private var sessionEventCount = 0
 
     private var currentSessionId: Long = 0
     private var recordingStartTime: Long = 0
@@ -117,6 +119,10 @@ class SleepRecordingService : Service() {
 
     @Volatile
     private var foregroundStarted = false
+
+    // P1: Gate to block processFrame during stop sequence
+    @Volatile
+    private var acceptingFrames = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -191,12 +197,13 @@ class SleepRecordingService : Service() {
         val settings = settingsDataStore.settings.first()
         eventDetector = SoundEventDetector(sensitivity = settings.sensitivity)
 
-        // Publish WakeLock setting state for Debug screen
         _wakeLockEnabled.value = settings.enableWakeLock
 
         audioEngine.start(object : AudioRecorderEngine.Callback {
             override fun onFrameCaptured(frame: AudioFrame) {
-                processFrame(frame)
+                if (acceptingFrames) {
+                    processFrame(frame)
+                }
             }
 
             override fun onError(error: AudioRecorderEngine.RecordingError) {
@@ -232,16 +239,18 @@ class SleepRecordingService : Service() {
         )
 
         currentSessionId = sessionId
+        sessionEventCount = 0
         _sessionId.value = sessionId
+        _eventCount.value = 0
         recordingStartTime = System.currentTimeMillis()
 
         notificationManager.updateToRecordingNotification()
 
-        // WakeLock: only acquire if user explicitly enabled it in settings
         if (settings.enableWakeLock) {
             acquireWakeLock()
         }
 
+        acceptingFrames = true
         _isRecording.value = true
         debugMetrics.onRecordingStarted(audioEngine.sampleRate, audioEngine.bufferSize)
         startDbFlushJob()
@@ -316,9 +325,9 @@ class SleepRecordingService : Service() {
             audioClipPath = null
         )
         synchronized(eventBufferLock) { eventBuffer.add(entity) }
-        // Read size under lock for accuracy
-        val count = synchronized(eventBufferLock) { eventBuffer.size }
-        _eventCount.value = count
+        // P2: Increment session-level counter, never reset during session
+        sessionEventCount++
+        _eventCount.value = sessionEventCount
         debugMetrics.onEventDetected()
     }
 
@@ -331,8 +340,13 @@ class SleepRecordingService : Service() {
         }
     }
 
+    /**
+     * P1: Clear-after-success with retry.
+     * On failure, requeue the batch at the front of the buffer and retry up to MAX_FLUSH_RETRIES.
+     * Only clears the buffer after a successful insert.
+     */
     private suspend fun flushBuffersToDb() {
-        // Atomic snapshot + clear under lock
+        // Snapshot samples
         val samplesToWrite: List<SoundSampleEntity> = synchronized(sampleBufferLock) {
             if (sampleBuffer.isEmpty()) return@synchronized emptyList()
             val copy = sampleBuffer.toList()
@@ -340,15 +354,31 @@ class SleepRecordingService : Service() {
             copy
         }
         if (samplesToWrite.isNotEmpty()) {
-            try {
-                repository.insertSamples(samplesToWrite)
-                dbWriteCount++
-                debugMetrics.onDbWrite()
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to write samples", e)
+            var written = false
+            for (attempt in 1..MAX_FLUSH_RETRIES) {
+                try {
+                    repository.insertSamples(samplesToWrite)
+                    dbWriteCount++
+                    debugMetrics.onDbWrite()
+                    written = true
+                    break
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to write samples (attempt $attempt/$MAX_FLUSH_RETRIES)", e)
+                    if (attempt < MAX_FLUSH_RETRIES) {
+                        kotlinx.coroutines.delay(1000L * attempt)
+                    }
+                }
+            }
+            if (!written) {
+                // Requeue at front so next flush picks them up
+                Log.w(TAG, "Requeuing ${samplesToWrite.size} samples after $MAX_FLUSH_RETRIES failures")
+                synchronized(sampleBufferLock) {
+                    sampleBuffer.addAll(0, samplesToWrite)
+                }
             }
         }
 
+        // Snapshot events
         val eventsToWrite: List<SoundEventEntity> = synchronized(eventBufferLock) {
             if (eventBuffer.isEmpty()) return@synchronized emptyList()
             val copy = eventBuffer.toList()
@@ -356,31 +386,57 @@ class SleepRecordingService : Service() {
             copy
         }
         if (eventsToWrite.isNotEmpty()) {
-            try {
-                repository.insertEvents(eventsToWrite)
-                dbWriteCount++
-                debugMetrics.onDbWrite()
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to write events", e)
+            var written = false
+            for (attempt in 1..MAX_FLUSH_RETRIES) {
+                try {
+                    repository.insertEvents(eventsToWrite)
+                    dbWriteCount++
+                    debugMetrics.onDbWrite()
+                    written = true
+                    break
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to write events (attempt $attempt/$MAX_FLUSH_RETRIES)", e)
+                    if (attempt < MAX_FLUSH_RETRIES) {
+                        kotlinx.coroutines.delay(1000L * attempt)
+                    }
+                }
+            }
+            if (!written) {
+                Log.w(TAG, "Requeuing ${eventsToWrite.size} events after $MAX_FLUSH_RETRIES failures")
+                synchronized(eventBufferLock) {
+                    eventBuffer.addAll(0, eventsToWrite)
+                }
             }
         }
     }
 
+    /**
+     * P1: Serialized stop sequence.
+     * 1. Block new frames (acceptingFrames = false)
+     * 2. Stop audio engine — this cancels the recording job, so no more callbacks
+     * 3. Now safe to flush detector + remaining frames + buffers
+     */
     private fun stopRecording() {
         val capturedSessionId = currentSessionId
         stopScope.launch {
             Log.i(TAG, "Stopping recording, sessionId=$capturedSessionId")
 
+            // Step 1: Block new frames immediately
+            acceptingFrames = false
+
+            // Step 2: Stop audio engine — this cancels the recording coroutine,
+            // guaranteeing no more onFrameCaptured callbacks after this returns
+            try { audioEngine.stop() } catch (e: Exception) {
+                Log.e(TAG, "Error stopping audio engine", e)
+            }
+
+            // Step 3: Now safe to flush everything (no concurrent access)
             try {
                 val lastEvent = eventDetector?.flush()
                 if (lastEvent != null) handleDetectedEvent(lastEvent)
                 if (framesInCurrentSecond.isNotEmpty()) aggregateAndBufferSecond()
             } catch (e: Exception) {
                 Log.e(TAG, "Error flushing final data", e)
-            }
-
-            try { audioEngine.stop() } catch (e: Exception) {
-                Log.e(TAG, "Error stopping audio engine", e)
             }
 
             _isRecording.value = false
@@ -403,7 +459,6 @@ class SleepRecordingService : Service() {
 
             try { stopForeground(STOP_FOREGROUND_REMOVE) } catch (_: Exception) {}
 
-            // Send completion notification after removing foreground
             try {
                 if (capturedSessionId > 0) {
                     notificationManager.sendCompletionNotification(capturedSessionId)
@@ -413,7 +468,7 @@ class SleepRecordingService : Service() {
             }
 
             stopSelf()
-            Log.i(TAG, "Recording stopped, dbWrites=$dbWriteCount")
+            Log.i(TAG, "Recording stopped, dbWrites=$dbWriteCount, totalEvents=$sessionEventCount")
         }
     }
 
@@ -424,7 +479,7 @@ class SleepRecordingService : Service() {
                 PowerManager.PARTIAL_WAKE_LOCK,
                 "gxSleep::RecordingWakeLock"
             ).apply {
-                acquire(8 * 60 * 60 * 1000L) // 8h safety max
+                acquire(8 * 60 * 60 * 1000L)
             }
             wakeLockAcquireTime = System.currentTimeMillis()
             _wakeLockHeld.value = true
@@ -451,7 +506,7 @@ class SleepRecordingService : Service() {
         if (_isRecording.value && currentSessionId > 0) {
             try {
                 if (::repository.isInitialized) {
-                    kotlinx.coroutines.runBlocking {
+                    runBlocking {
                         repository.markSessionCrashed(currentSessionId)
                     }
                 }

@@ -9,6 +9,7 @@ import com.gx.sleep.domain.model.VolumePoint
 
 /**
  * Generates a session report from stored data.
+ * Uses O(n) sliding window and bucket aggregation instead of O(n²) scans.
  */
 object SessionReportGenerator {
 
@@ -22,110 +23,102 @@ object SessionReportGenerator {
     ): SessionReport {
         val totalDurationMs = endTime - startTime
 
-        // Calculate quiet duration (time not covered by events)
         val eventDurationMs = events.sumOf { it.durationMs }
         val quietDurationMs = (totalDurationMs - eventDurationMs).coerceAtLeast(0)
 
-        // Count events by type
         val eventCounts = mutableMapOf<SoundEventType, Int>()
-        for (type in SoundEventType.entries) {
-            eventCounts[type] = 0
-        }
+        for (type in SoundEventType.entries) { eventCounts[type] = 0 }
         var snoreDurationMs = 0L
         for (event in events) {
             val type = SoundEventType.fromString(event.type)
             eventCounts[type] = (eventCounts[type] ?: 0) + 1
-            if (type == SoundEventType.SNORE_LIKE) {
-                snoreDurationMs += event.durationMs
-            }
+            if (type == SoundEventType.SNORE_LIKE) snoreDurationMs += event.durationMs
         }
 
-        // Calculate average and max dBFS from samples
         val avgDbfs = if (samples.isNotEmpty()) samples.map { it.dbfs }.average().toFloat() else -120f
         val maxDbfs = if (samples.isNotEmpty()) samples.maxOf { it.dbfs } else -120f
 
-        // Find loudest time range (5-minute window)
+        // O(n) sliding window for loudest range
         val loudestRange = findLoudestTimeRange(samples, 5 * 60 * 1000L)
 
-        // Volume curve (one point per minute)
+        // O(n) bucket aggregation for volume curve
         val volumeCurve = buildVolumeCurve(samples, startTime, endTime)
 
-        // Convert entities to domain models
         val domainEvents = events.map { entity ->
             SoundEvent(
-                id = entity.id,
-                sessionId = entity.sessionId,
-                startTime = entity.startTime,
-                endTime = entity.endTime,
-                durationMs = entity.durationMs,
-                type = SoundEventType.fromString(entity.type),
-                confidence = entity.confidence,
-                avgDbfs = entity.avgDbfs,
-                maxDbfs = entity.maxDbfs,
-                audioClipPath = entity.audioClipPath
+                id = entity.id, sessionId = entity.sessionId,
+                startTime = entity.startTime, endTime = entity.endTime,
+                durationMs = entity.durationMs, type = SoundEventType.fromString(entity.type),
+                confidence = entity.confidence, avgDbfs = entity.avgDbfs,
+                maxDbfs = entity.maxDbfs, audioClipPath = entity.audioClipPath
             )
         }
 
         val sleepScore = SleepScoreCalculator.calculate(
-            totalDurationMs = totalDurationMs,
-            quietDurationMs = quietDurationMs,
-            snoreDurationMs = snoreDurationMs,
-            eventCounts = eventCounts,
-            avgDbfs = avgDbfs,
-            maxDbfs = maxDbfs,
-            baselineRms = baselineRms
+            totalDurationMs, quietDurationMs, snoreDurationMs,
+            eventCounts, avgDbfs, maxDbfs, baselineRms
         )
 
         return SessionReport(
-            sessionId = sessionId,
-            startTime = startTime,
-            endTime = endTime,
-            totalDurationMs = totalDurationMs,
-            quietDurationMs = quietDurationMs,
+            sessionId = sessionId, startTime = startTime, endTime = endTime,
+            totalDurationMs = totalDurationMs, quietDurationMs = quietDurationMs,
             totalEvents = events.size,
             snoreCount = eventCounts[SoundEventType.SNORE_LIKE] ?: 0,
             speechCount = eventCounts[SoundEventType.SPEECH_LIKE] ?: 0,
             coughCount = eventCounts[SoundEventType.COUGH_LIKE] ?: 0,
             impactCount = eventCounts[SoundEventType.IMPACT_NOISE] ?: 0,
             environmentNoiseCount = eventCounts[SoundEventType.ENVIRONMENT_NOISE] ?: 0,
-            loudestTimeRange = loudestRange,
-            avgDbfs = avgDbfs,
-            maxDbfs = maxDbfs,
-            sleepScore = sleepScore,
-            events = domainEvents,
-            volumeCurve = volumeCurve
+            loudestTimeRange = loudestRange, avgDbfs = avgDbfs, maxDbfs = maxDbfs,
+            sleepScore = sleepScore, events = domainEvents, volumeCurve = volumeCurve
         )
     }
 
+    /**
+     * O(n) sliding window with running sum.
+     * Samples must be sorted by timestamp ascending.
+     */
     private fun findLoudestTimeRange(
         samples: List<SoundSampleEntity>,
         windowMs: Long
     ): Pair<Long, Long>? {
         if (samples.isEmpty()) return null
 
-        val sortedSamples = samples.sortedBy { it.timestamp }
+        val sorted = samples.sortedBy { it.timestamp }
         var maxAvg = Float.MIN_VALUE
-        var bestStart = sortedSamples.first().timestamp
-        var bestEnd = sortedSamples.first().timestamp
+        var bestStart = sorted.first().timestamp
+        var bestEnd = sorted.first().timestamp
 
         var windowStart = 0
-        for (i in sortedSamples.indices) {
-            val windowEnd = sortedSamples[i].timestamp
-            while (windowEnd - sortedSamples[windowStart].timestamp > windowMs) {
+        var windowSum = 0.0
+        var windowCount = 0
+
+        for (i in sorted.indices) {
+            // Add current sample to window
+            windowSum += sorted[i].dbfs
+            windowCount++
+
+            // Shrink window from left if exceeds windowMs
+            while (sorted[i].timestamp - sorted[windowStart].timestamp > windowMs) {
+                windowSum -= sorted[windowStart].dbfs
+                windowCount--
                 windowStart++
             }
-            val windowSamples = sortedSamples.subList(windowStart, i + 1)
-            val avg = windowSamples.map { it.dbfs }.average().toFloat()
+
+            val avg = (windowSum / windowCount).toFloat()
             if (avg > maxAvg) {
                 maxAvg = avg
-                bestStart = sortedSamples[windowStart].timestamp
-                bestEnd = windowEnd
+                bestStart = sorted[windowStart].timestamp
+                bestEnd = sorted[i].timestamp
             }
         }
 
         return bestStart to bestEnd
     }
 
+    /**
+     * O(n) bucket aggregation for volume curve.
+     * Groups samples into 1-minute buckets in a single pass.
+     */
     private fun buildVolumeCurve(
         samples: List<SoundSampleEntity>,
         startTime: Long,
@@ -134,19 +127,29 @@ object SessionReportGenerator {
         if (samples.isEmpty()) return emptyList()
 
         val minuteMs = 60_000L
-        val points = mutableListOf<VolumePoint>()
-        var t = startTime
+        // bucket index = (timestamp - startTime) / minuteMs
+        data class Bucket(var sum: Double = 0.0, var count: Int = 0)
 
-        while (t < endTime) {
-            val windowEnd = t + minuteMs
-            val windowSamples = samples.filter { it.timestamp in t until windowEnd }
-            if (windowSamples.isNotEmpty()) {
-                val avgDbfs = windowSamples.map { it.dbfs }.average().toFloat()
-                points.add(VolumePoint(timestamp = t, dbfs = avgDbfs))
-            }
-            t = windowEnd
+        val buckets = HashMap<Int, Bucket>()
+        for (s in samples) {
+            val idx = ((s.timestamp - startTime) / minuteMs).toInt()
+            if (idx < 0) continue
+            val bucket = buckets.getOrPut(idx) { Bucket() }
+            bucket.sum += s.dbfs
+            bucket.count++
         }
 
+        val points = mutableListOf<VolumePoint>()
+        val sortedKeys = buckets.keys.sorted()
+        for (key in sortedKeys) {
+            val b = buckets[key]!!
+            if (b.count > 0) {
+                points.add(VolumePoint(
+                    timestamp = startTime + key * minuteMs,
+                    dbfs = (b.sum / b.count).toFloat()
+                ))
+            }
+        }
         return points
     }
 }

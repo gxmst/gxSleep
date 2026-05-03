@@ -35,7 +35,13 @@ class SoundEventDetector(
 
     fun feedFrame(frame: AudioFrame): DetectedEvent? {
         totalFramesProcessed++
-        updateBaseline(frame)
+
+        // P2: Only update baseline when NOT inside an event.
+        // This prevents sustained loud sounds (snoring, speech) from
+        // raising the noise floor and causing event fragmentation.
+        if (!inEvent) {
+            updateBaseline(frame)
+        }
 
         val threshold = baselineRms * thresholdFactor
         val isSoundLoud = frame.rms > threshold
