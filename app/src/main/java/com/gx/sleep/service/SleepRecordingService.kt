@@ -369,19 +369,24 @@ class SleepRecordingService : Service() {
                         consecutiveFailures = 0
                     } else {
                         consecutiveFailures++
-                        Log.w(TAG, "Periodic flush failed, consecutiveFailures=$consecutiveFailures")
-                        if (consecutiveFailures >= 3) {
-                            _error.tryEmit(ErrorInfo(
-                                AudioRecorderEngine.RecordingError.RECORD_FAILED,
-                                "数据库写入连续失败，部分数据可能丢失"
-                            ))
-                        }
+                        reportPeriodicFlushFailure(consecutiveFailures)
                     }
                 } catch (e: Exception) {
                     consecutiveFailures++
                     Log.e(TAG, "Periodic flush exception", e)
+                    reportPeriodicFlushFailure(consecutiveFailures)
                 }
             }
+        }
+    }
+
+    private fun reportPeriodicFlushFailure(consecutiveFailures: Int) {
+        Log.w(TAG, "Flush failure #$consecutiveFailures")
+        if (consecutiveFailures >= 3) {
+            _error.tryEmit(ErrorInfo(
+                AudioRecorderEngine.RecordingError.RECORD_FAILED,
+                "数据库写入连续失败，部分数据可能丢失"
+            ))
         }
     }
 
@@ -499,10 +504,18 @@ class SleepRecordingService : Service() {
                     Log.e(TAG, "Error flushing final data", e)
                 }
 
-                // Step 4: Flush buffers to DB
-                flushOk = try { flushBuffersToDb() } catch (e: Exception) {
-                    Log.e(TAG, "Error flushing buffers", e)
-                    false
+                // Step 4: Flush buffers to DB with retries
+                // P1: Retry final flush before giving up — requeued data lives in memory buffers
+                for (attempt in 1..MAX_FLUSH_RETRIES) {
+                    flushOk = try { flushBuffersToDb() } catch (e: Exception) {
+                        Log.e(TAG, "Error flushing buffers (attempt $attempt)", e)
+                        false
+                    }
+                    if (flushOk) break
+                    if (attempt < MAX_FLUSH_RETRIES) {
+                        Log.w(TAG, "Final flush failed, retrying in ${attempt}s...")
+                        kotlinx.coroutines.delay(1000L * attempt)
+                    }
                 }
 
                 // Step 5: Complete session

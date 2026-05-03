@@ -9,6 +9,7 @@ import com.gx.sleep.data.local.entity.SessionStatus
 import com.gx.sleep.data.repository.SleepRepository
 import com.gx.sleep.domain.model.SessionReport
 import com.gx.sleep.service.SleepRecordingService
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -91,16 +92,21 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             repository.getLatestSession().collectLatest { session ->
                 if (session != null && session.status != SessionStatus.RUNNING) {
                     try {
-                        val samples = repository.getSamplesBySession(session.id)
-                        val events = repository.getEventsBySessionList(session.id)
-                        val report = SessionReportGenerator.generate(
-                            sessionId = session.id,
-                            startTime = session.startTime,
-                            endTime = session.endTime,
-                            samples = samples,
-                            events = events,
-                            baselineRms = 50f
-                        )
+                        // P3: Fetch and generate on background dispatcher
+                        val report = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                            val samples = repository.getSamplesBySession(session.id)
+                            val events = repository.getEventsBySessionList(session.id)
+                            kotlinx.coroutines.withContext(Dispatchers.Default) {
+                                SessionReportGenerator.generate(
+                                    sessionId = session.id,
+                                    startTime = session.startTime,
+                                    endTime = session.endTime,
+                                    samples = samples,
+                                    events = events,
+                                    baselineRms = 50f
+                                )
+                            }
+                        }
                         _uiState.value = _uiState.value.copy(lastReport = report, isLoading = false)
                     } catch (_: Exception) {
                         _uiState.value = _uiState.value.copy(isLoading = false)

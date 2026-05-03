@@ -7,10 +7,12 @@ import com.gx.sleep.GxSleepApp
 import com.gx.sleep.analysis.SessionReportGenerator
 import com.gx.sleep.data.repository.SleepRepository
 import com.gx.sleep.domain.model.SessionReport
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class SessionDetailViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application as GxSleepApp
@@ -30,20 +32,24 @@ class SessionDetailViewModel(application: Application) : AndroidViewModel(applic
         viewModelScope.launch {
             _isLoading.value = true
             try {
-                val session = repository.getSessionById(sessionId) ?: return@launch
-                val samples = repository.getSamplesBySession(sessionId)
-                val events = repository.getEventsBySessionList(sessionId)
-                val report = SessionReportGenerator.generate(
-                    sessionId = sessionId,
-                    startTime = session.startTime,
-                    endTime = session.endTime,
-                    samples = samples,
-                    events = events,
-                    baselineRms = 50f
-                )
+                // P3: Fetch data and generate report on background dispatcher
+                val report = withContext(Dispatchers.IO) {
+                    val session = repository.getSessionById(sessionId) ?: return@withContext null
+                    val samples = repository.getSamplesBySession(sessionId)
+                    val events = repository.getEventsBySessionList(sessionId)
+                    withContext(Dispatchers.Default) {
+                        SessionReportGenerator.generate(
+                            sessionId = sessionId,
+                            startTime = session.startTime,
+                            endTime = session.endTime,
+                            samples = samples,
+                            events = events,
+                            baselineRms = 50f
+                        )
+                    }
+                }
                 _report.value = report
             } catch (_: Exception) {
-                // Handle error
             } finally {
                 _isLoading.value = false
             }
