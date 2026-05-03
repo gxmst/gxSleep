@@ -7,12 +7,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
-import com.gx.sleep.domain.model.SoundEventType
 import com.gx.sleep.domain.model.SoundEvent
 import com.gx.sleep.domain.model.VolumePoint
 
@@ -25,14 +22,6 @@ fun VolumeChart(
     modifier: Modifier = Modifier
 ) {
     val lineColor = MaterialTheme.colorScheme.primary
-    val eventColors = mapOf(
-        SoundEventType.SNORE_LIKE to Color(0xFFFF9800),
-        SoundEventType.SPEECH_LIKE to Color(0xFF4CAF50),
-        SoundEventType.COUGH_LIKE to Color(0xFFF44336),
-        SoundEventType.IMPACT_NOISE to Color(0xFFE91E63),
-        SoundEventType.ENVIRONMENT_NOISE to Color(0xFF9E9E9E),
-        SoundEventType.UNKNOWN to Color(0xFF607D8B)
-    )
 
     Canvas(
         modifier = modifier
@@ -50,7 +39,6 @@ fun VolumeChart(
         val totalDuration = (endTime - startTime).toFloat()
         if (totalDuration <= 0) return@Canvas
 
-        // dBFS range: -120 to 0
         val minDb = -80f
         val maxDb = -10f
 
@@ -71,14 +59,14 @@ fun VolumeChart(
         }
         drawPath(path, lineColor, style = Stroke(width = 2f))
 
-        // Draw event markers
+        // Draw event markers using DesignSystem EventColors
         for (event in events) {
             val startX = padding + ((event.startTime - startTime) / totalDuration) * chartWidth
             val endX = padding + ((event.endTime - startTime) / totalDuration) * chartWidth
-            val color = eventColors[event.type] ?: Color.Gray
+            val color = EventColors.forType(event.type.name)
 
             drawRect(
-                color = color.copy(alpha = 0.3f),
+                color = color.copy(alpha = 0.25f),
                 topLeft = Offset(startX, padding),
                 size = androidx.compose.ui.geometry.Size(
                     (endX - startX).coerceAtLeast(2f),

@@ -173,7 +173,12 @@ fun AppNavGraph(navController: NavHostController, modifier: Modifier = Modifier)
         composable("recording") {
             RecordingScreen(
                 onBack = { navController.popBackStack() },
-                onStopAndShowReport = { navController.popBackStack() }
+                onStopAndShowReport = { sessionId ->
+                    navController.popBackStack()
+                    if (sessionId > 0) {
+                        navController.navigate("session/$sessionId")
+                    }
+                }
             )
         }
         composable(

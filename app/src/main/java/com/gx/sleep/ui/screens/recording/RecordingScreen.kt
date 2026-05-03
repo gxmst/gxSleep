@@ -34,6 +34,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,14 +59,23 @@ import com.gx.sleep.ui.components.SleepDimens
 @Composable
 fun RecordingScreen(
     onBack: () -> Unit,
-    onStopAndShowReport: () -> Unit
+    onStopAndShowReport: (Long) -> Unit
 ) {
     val context = LocalContext.current
     val isRecording by SleepRecordingService.isRecording.collectAsState()
     val currentRms by SleepRecordingService.currentRms.collectAsState()
     val eventCount by SleepRecordingService.eventCount.collectAsState()
+    val sessionId by SleepRecordingService.sessionId.collectAsState()
 
     var showStopDialog by remember { mutableStateOf(false) }
+
+    // When recording stops (isRecording becomes false) and we have a sessionId,
+    // auto-navigate to report
+    LaunchedEffect(isRecording) {
+        if (!isRecording && sessionId != null && sessionId!! > 0) {
+            onStopAndShowReport(sessionId!!)
+        }
+    }
 
     if (showStopDialog) {
         ConfirmDialog(
@@ -76,7 +86,7 @@ fun RecordingScreen(
             onConfirm = {
                 showStopDialog = false
                 SleepRecordingService.stopService(context)
-                onStopAndShowReport()
+                // Don't navigate yet - wait for isRecording to become false
             },
             onDismiss = { showStopDialog = false }
         )

@@ -107,10 +107,12 @@ fun SessionListScreen(
                 subtitle = "开始第一次睡眠记录吧"
             )
         } else {
+            // P2: Filter out RUNNING sessions - they have no valid report data
+            val completedSessions = sessions.filter { it.status != SessionStatus.RUNNING }
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(SleepDimens.itemGap)
             ) {
-                items(sessions, key = { it.id }) { session ->
+                items(completedSessions, key = { it.id }) { session ->
                     SessionListItem(
                         session = session,
                         dateFormat = dateFormat,

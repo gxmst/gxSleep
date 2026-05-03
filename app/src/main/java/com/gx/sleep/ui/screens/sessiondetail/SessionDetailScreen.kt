@@ -1,6 +1,8 @@
 package com.gx.sleep.ui.screens.sessiondetail
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -10,7 +12,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -19,6 +24,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -31,9 +37,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.gx.sleep.domain.model.SoundEvent
+import com.gx.sleep.ui.components.EventColors
 import com.gx.sleep.ui.components.EventTypeChip
 import com.gx.sleep.ui.components.SectionHeader
 import com.gx.sleep.ui.components.SleepCard
@@ -210,6 +219,32 @@ fun SessionDetailScreen(
 
                 Spacer(modifier = Modifier.height(SleepDimens.sectionGap))
 
+                // ── Event timeline ──
+                if (r.events.isNotEmpty()) {
+                    SectionHeader(title = "声音事件时间轴", subtitle = "点击查看详情")
+                    Spacer(modifier = Modifier.height(SleepDimens.itemGap))
+                    SleepCard {
+                        val timeFmt = SimpleDateFormat("HH:mm:ss", Locale.CHINESE)
+                        r.events.forEachIndexed { index, event ->
+                            EventTimelineItem(
+                                event = event,
+                                timeFmt = timeFmt,
+                                onClick = { onEventClick(event.id) }
+                            )
+                            if (index < r.events.lastIndex) {
+                                Spacer(modifier = Modifier.height(2.dp))
+                                androidx.compose.material3.HorizontalDivider(
+                                    modifier = Modifier.padding(start = 28.dp),
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(SleepDimens.sectionGap))
+                }
+
                 // ── Disclaimer ──
                 Text(
                     text = "仅供自我观察，不构成医学诊断",
@@ -239,5 +274,65 @@ private fun StatCol(label: String, value: String, modifier: Modifier = Modifier)
     Column(modifier = modifier.padding(4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun EventTimelineItem(
+    event: SoundEvent,
+    timeFmt: SimpleDateFormat,
+    onClick: () -> Unit
+) {
+    val color = EventColors.forType(event.type.name)
+    val label = EventColors.labelFor(event.type.name)
+    val durationSec = event.durationMs / 1000
+
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(10.dp)
+                    .background(color, CircleShape)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = "${timeFmt.format(Date(event.startTime))} · ${durationSec}秒",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Text(
+                text = "${(event.confidence * 100).toInt()}%",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = "›",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+            )
+        }
     }
 }
