@@ -34,6 +34,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class SleepRecordingService : Service() {
 
@@ -359,9 +360,27 @@ class SleepRecordingService : Service() {
 
     private fun startDbFlushJob() {
         dbFlushJob = scope.launch {
+            var consecutiveFailures = 0
             while (_isRecording.value) {
                 kotlinx.coroutines.delay(10_000)
-                try { flushBuffersToDb() } catch (_: Exception) {}
+                try {
+                    val ok = flushBuffersToDb()
+                    if (ok) {
+                        consecutiveFailures = 0
+                    } else {
+                        consecutiveFailures++
+                        Log.w(TAG, "Periodic flush failed, consecutiveFailures=$consecutiveFailures")
+                        if (consecutiveFailures >= 3) {
+                            _error.tryEmit(ErrorInfo(
+                                AudioRecorderEngine.RecordingError.RECORD_FAILED,
+                                "数据库写入连续失败，部分数据可能丢失"
+                            ))
+                        }
+                    }
+                } catch (e: Exception) {
+                    consecutiveFailures++
+                    Log.e(TAG, "Periodic flush exception", e)
+                }
             }
         }
     }
@@ -456,74 +475,80 @@ class SleepRecordingService : Service() {
 
         val capturedSessionId = currentSessionId
         stopScope.launch {
-            Log.i(TAG, "Stopping recording, sessionId=$capturedSessionId")
-
-            // Step 1: Block new frames
-            acceptingFrames = false
-
-            // Step 2: Stop audio engine — cancels recording job
-            try { audioEngine.stop() } catch (e: Exception) {
-                Log.e(TAG, "Error stopping audio engine", e)
-            }
-
-            // Step 3: Acquire mutex — waits for any in-flight processFrame to finish
-            frameMutex.lock()
-            try {
-                // Now safe to flush (no concurrent processFrame)
-                val lastEvent = eventDetector?.flush()
-                if (lastEvent != null) handleDetectedEvent(lastEvent)
-                if (framesInCurrentSecond.isNotEmpty()) aggregateAndBufferSecond()
-            } finally {
-                frameMutex.unlock()
-            }
-
-            // Step 4: Flush buffers to DB
-            val flushOk = try { flushBuffersToDb() } catch (e: Exception) {
-                Log.e(TAG, "Error flushing buffers", e)
-                false
-            }
-
-            // Step 5: Complete session
+            var flushOk = false
             var completeOk = false
-            if (flushOk) {
+            try {
+                Log.i(TAG, "Stopping recording, sessionId=$capturedSessionId")
+
+                // Step 1: Block new frames
+                acceptingFrames = false
+
+                // Step 2: Stop audio engine
+                try { audioEngine.stop() } catch (e: Exception) {
+                    Log.e(TAG, "Error stopping audio engine", e)
+                }
+
+                // Step 3: Flush remaining detector data (mutex ensures no concurrent processFrame)
                 try {
-                    if (capturedSessionId > 0) {
-                        val batteryPercent = DeviceInfoProvider.getBatteryPercent(this@SleepRecordingService)
-                        repository.completeSession(capturedSessionId, batteryPercent)
-                        completeOk = true
+                    frameMutex.withLock {
+                        val lastEvent = eventDetector?.flush()
+                        if (lastEvent != null) handleDetectedEvent(lastEvent)
+                        if (framesInCurrentSecond.isNotEmpty()) aggregateAndBufferSecond()
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error completing session", e)
+                    Log.e(TAG, "Error flushing final data", e)
                 }
-            }
 
-            // Step 6: Signal result
-            _isRecording.value = false
-            if (flushOk && completeOk) {
-                _recordingCompleted.tryEmit(capturedSessionId)
-            } else {
-                // Mark as crashed — data is incomplete
+                // Step 4: Flush buffers to DB
+                flushOk = try { flushBuffersToDb() } catch (e: Exception) {
+                    Log.e(TAG, "Error flushing buffers", e)
+                    false
+                }
+
+                // Step 5: Complete session
+                if (flushOk) {
+                    try {
+                        if (capturedSessionId > 0) {
+                            val batteryPercent = DeviceInfoProvider.getBatteryPercent(this@SleepRecordingService)
+                            repository.completeSession(capturedSessionId, batteryPercent)
+                            completeOk = true
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error completing session", e)
+                    }
+                }
+
+                // Step 6: Signal result
+                _isRecording.value = false
+                if (flushOk && completeOk) {
+                    _recordingCompleted.tryEmit(capturedSessionId)
+                } else {
+                    try { repository.markSessionCrashed(capturedSessionId) } catch (_: Exception) {}
+                    Log.w(TAG, "Session marked CRASHED: flushOk=$flushOk, completeOk=$completeOk")
+                }
+
+                if (flushOk && completeOk) {
+                    try { notificationManager.sendCompletionNotification(capturedSessionId) } catch (e: Exception) {
+                        Log.e(TAG, "Error sending completion notification", e)
+                    }
+                }
+
+                Log.i(TAG, "Recording stopped, flushOk=$flushOk, completeOk=$completeOk, dbWrites=$dbWriteCount")
+
+            } catch (e: Exception) {
+                // P1: Catch any unexpected exception to prevent isStopping from getting stuck
+                Log.e(TAG, "Unexpected error in stopRecording", e)
+                _isRecording.value = false
                 try { repository.markSessionCrashed(capturedSessionId) } catch (_: Exception) {}
-                Log.w(TAG, "Session marked CRASHED: flushOk=$flushOk, completeOk=$completeOk")
+            } finally {
+                // P1: ALWAYS release resources and reset flags, regardless of success/failure
+                try { releaseWakeLock() } catch (_: Exception) {}
+                try { debugMetrics.onRecordingStopped() } catch (_: Exception) {}
+                try { stopForeground(STOP_FOREGROUND_REMOVE) } catch (_: Exception) {}
+                try { stopSelf() } catch (_: Exception) {}
+                isStopping = false
+                _isStopping.value = false
             }
-
-            releaseWakeLock()
-            debugMetrics.onRecordingStopped()
-
-            try { stopForeground(STOP_FOREGROUND_REMOVE) } catch (_: Exception) {}
-
-            if (flushOk && completeOk) {
-                try {
-                    notificationManager.sendCompletionNotification(capturedSessionId)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error sending completion notification", e)
-                }
-            }
-
-            stopSelf()
-            isStopping = false
-            _isStopping.value = false
-            Log.i(TAG, "Recording stopped, flushOk=$flushOk, completeOk=$completeOk, dbWrites=$dbWriteCount")
         }
     }
 
