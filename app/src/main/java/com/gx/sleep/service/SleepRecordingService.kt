@@ -450,18 +450,27 @@ class SleepRecordingService : Service() {
                 Log.e(TAG, "Error flushing buffers", e)
             }
 
+            var sessionCompleted = false
             try {
                 if (capturedSessionId > 0) {
                     val batteryPercent = DeviceInfoProvider.getBatteryPercent(this@SleepRecordingService)
                     repository.completeSession(capturedSessionId, batteryPercent)
+                    sessionCompleted = true
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error completing session", e)
             }
 
-            // Step 5: NOW signal completion — data is ready in DB
+            // Step 5: Signal completion ONLY if session was successfully completed
             _isRecording.value = false
-            _recordingCompleted.tryEmit(capturedSessionId)
+            if (sessionCompleted) {
+                _recordingCompleted.tryEmit(capturedSessionId)
+            } else {
+                // Mark as crashed so history shows the issue
+                try {
+                    repository.markSessionCrashed(capturedSessionId)
+                } catch (_: Exception) {}
+            }
 
             releaseWakeLock()
             debugMetrics.onRecordingStopped()

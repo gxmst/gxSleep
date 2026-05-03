@@ -68,21 +68,17 @@ fun RecordingScreen(
     val sessionId by SleepRecordingService.sessionId.collectAsState()
 
     var showStopDialog by remember { mutableStateOf(false) }
-    // P1: Track whether we ever saw recording=true on this page.
-    // Only navigate to report after a true->false transition, not on initial false.
-    var hasSeenRecording by remember { mutableStateOf(false) }
+    // P2: Only navigate to report when THIS page initiated the stop.
+    // Set to the session ID we expect completion for; cleared after navigation.
+    var pendingStopSessionId by remember { mutableStateOf<Long?>(null) }
 
-    LaunchedEffect(isRecording) {
-        if (isRecording) {
-            hasSeenRecording = true
-        }
-    }
-
-    // P1: Listen for recordingCompleted event (emitted after DB flush + completeSession).
-    // This is the safe time to navigate to the report.
+    // P1: Listen for recordingCompleted — only navigate if we initiated the stop
+    // and the completed session matches our expectation.
     LaunchedEffect(Unit) {
         SleepRecordingService.recordingCompleted.collect { completedSessionId ->
-            if (completedSessionId > 0) {
+            val expected = pendingStopSessionId
+            if (expected != null && completedSessionId == expected && completedSessionId > 0) {
+                pendingStopSessionId = null
                 onStopAndShowReport(completedSessionId)
             }
         }
@@ -96,8 +92,9 @@ fun RecordingScreen(
             isDanger = true,
             onConfirm = {
                 showStopDialog = false
+                // Record which session we expect to complete
+                pendingStopSessionId = sessionId
                 SleepRecordingService.stopService(context)
-                // Don't navigate yet — wait for recordingCompleted event
             },
             onDismiss = { showStopDialog = false }
         )
