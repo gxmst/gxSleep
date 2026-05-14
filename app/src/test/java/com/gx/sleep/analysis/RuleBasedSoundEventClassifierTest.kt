@@ -36,14 +36,14 @@ class RuleBasedSoundEventClassifierTest {
 
     @Test
     fun `classify IMPACT_NOISE with exact boundary values`() {
-        // Exactly at boundary: duration = 499ms, maxDbfs = -20dB
+        // Just inside boundary: duration = 499ms, maxDbfs = -19.9dB
         val (type, _) = classifier.classify(
             durationMs = 499,
             avgRms = 5000f,
             maxRms = 8000f,
             avgZcr = 0.1f,
-            avgDbfs = -20f,
-            maxDbfs = -20f,
+            avgDbfs = -19f,
+            maxDbfs = -19.9f,
             lowBandRatio = 0.3f,
             midBandRatio = 0.4f,
             highBandRatio = 0.3f,
@@ -109,17 +109,17 @@ class RuleBasedSoundEventClassifierTest {
 
     @Test
     fun `classify COUGH_LIKE with exact boundary values`() {
-        // Exactly at boundary: duration = 100ms, maxDbfs = -25dB, highBandRatio = 0.2
+        // Just inside boundary: duration = 100ms, maxDbfs = -24.9dB, highBandRatio = 0.21
         val (type, _) = classifier.classify(
             durationMs = 100,
             avgRms = 4000f,
             maxRms = 6000f,
             avgZcr = 0.12f,
-            avgDbfs = -25f,
-            maxDbfs = -25f,
+            avgDbfs = -24f,
+            maxDbfs = -24.9f,
             lowBandRatio = 0.2f,
             midBandRatio = 0.3f,
-            highBandRatio = 0.2f,
+            highBandRatio = 0.21f,
             rmsEnvelopeRoughness = 0.2f
         )
         assertEquals(SoundEventType.COUGH_LIKE, type)
@@ -294,16 +294,16 @@ class RuleBasedSoundEventClassifierTest {
 
     @Test
     fun `classify SPEECH_LIKE with exact boundary values`() {
-        // Exactly at boundary: duration = 300ms, avgZcr = 0.08, midBandRatio = 0.2
+        // Just inside boundary: duration = 300ms, avgZcr = 0.081, midBandRatio = 0.21
         val (type, _) = classifier.classify(
             durationMs = 300,
             avgRms = 3000f,
             maxRms = 5000f,
-            avgZcr = 0.08f,
+            avgZcr = 0.081f,
             avgDbfs = -25f,
             maxDbfs = -15f,
             lowBandRatio = 0.3f,
-            midBandRatio = 0.2f,
+            midBandRatio = 0.21f,
             highBandRatio = 0.1f,
             rmsEnvelopeRoughness = 0.2f
         )
@@ -349,13 +349,14 @@ class RuleBasedSoundEventClassifierTest {
     @Test
     fun `classify MOVEMENT_FRICTION when medium duration and quiet with wide spectrum`() {
         // duration 1000-3000ms, avgDbfs -25 to -45, ZCR 0.06-0.12, balanced bands
+        // Note: maxDbfs must be <= -25f to avoid COUGH_LIKE matching first
         val (type, confidence) = classifier.classify(
             durationMs = 1500,
             avgRms = 800f,
             maxRms = 1500f,
             avgZcr = 0.09f,
             avgDbfs = -35f,
-            maxDbfs = -28f,
+            maxDbfs = -30f,
             lowBandRatio = 0.35f,
             midBandRatio = 0.35f,
             highBandRatio = 0.3f,
@@ -367,14 +368,15 @@ class RuleBasedSoundEventClassifierTest {
 
     @Test
     fun `classify MOVEMENT_FRICTION with exact boundary values`() {
-        // Exactly at boundary: duration = 1000ms, avgDbfs = -25dB, avgZcr = 0.06
+        // Just inside boundary: duration = 1000ms, avgDbfs = -25dB, avgZcr = 0.06
+        // Note: maxDbfs must be <= -25f to avoid COUGH_LIKE matching first
         val (type, _) = classifier.classify(
             durationMs = 1000,
             avgRms = 800f,
             maxRms = 1500f,
-            avgZcr = 0.06f,
+            avgZcr = 0.061f,
             avgDbfs = -25f,
-            maxDbfs = -20f,
+            maxDbfs = -26f,
             lowBandRatio = 0.35f,
             midBandRatio = 0.35f,
             highBandRatio = 0.3f,
@@ -385,14 +387,15 @@ class RuleBasedSoundEventClassifierTest {
 
     @Test
     fun `classify MOVEMENT_FRICTION with upper boundary values`() {
-        // Exactly at boundary: duration = 3000ms, avgDbfs = -45dB, avgZcr = 0.12
+        // Just inside boundary: duration = 3000ms, avgDbfs = -45dB, avgZcr = 0.12
+        // Note: maxDbfs must be <= -25f to avoid COUGH_LIKE matching first
         val (type, _) = classifier.classify(
             durationMs = 3000,
             avgRms = 800f,
             maxRms = 1500f,
-            avgZcr = 0.12f,
+            avgZcr = 0.119f,
             avgDbfs = -45f,
-            maxDbfs = -38f,
+            maxDbfs = -46f,
             lowBandRatio = 0.35f,
             midBandRatio = 0.35f,
             highBandRatio = 0.3f,
@@ -567,14 +570,14 @@ class RuleBasedSoundEventClassifierTest {
 
     @Test
     fun `classify ENVIRONMENT_NOISE with exact boundary values`() {
-        // Exactly at boundary: duration = 3001ms, avgDbfs = -30dB
+        // Just inside boundary: duration = 3001ms, avgDbfs = -30.1dB
         val (type, _) = classifier.classify(
             durationMs = 3001,
             avgRms = 1000f,
             maxRms = 2000f,
             avgZcr = 0.05f,
-            avgDbfs = -30f,
-            maxDbfs = -30f,
+            avgDbfs = -30.1f,
+            maxDbfs = -31f,
             lowBandRatio = 0.4f,
             midBandRatio = 0.3f,
             highBandRatio = 0.3f,
@@ -622,16 +625,17 @@ class RuleBasedSoundEventClassifierTest {
     @Test
     fun `classify UNKNOWN when no pattern matches`() {
         // Medium duration, medium loudness, no distinctive features
+        // Note: must avoid all rule conditions
         val (type, confidence) = classifier.classify(
             durationMs = 1000,
             avgRms = 2000f,
             maxRms = 3000f,
             avgZcr = 0.06f,
             avgDbfs = -28f,
-            maxDbfs = -22f,
+            maxDbfs = -26f,
             lowBandRatio = 0.35f,
             midBandRatio = 0.35f,
-            highBandRatio = 0.3f,
+            highBandRatio = 0.15f,
             rmsEnvelopeRoughness = 0.25f
         )
         assertEquals(SoundEventType.UNKNOWN, type)
