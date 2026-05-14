@@ -51,7 +51,8 @@ class SleepRepository(
         batteryPercent: Int,
         awakeCount: Int = 0,
         awakeDurationMs: Long = 0,
-        baselineRms: Float = 50f
+        baselineRms: Float = 50f,
+        isShortSession: Boolean = false
     ) {
         val session = sessionDao.getById(sessionId) ?: return
         val now = System.currentTimeMillis()
@@ -63,7 +64,8 @@ class SleepRepository(
                 batteryEndPercent = batteryPercent,
                 awakeCount = awakeCount,
                 awakeDurationMs = awakeDurationMs,
-                baselineRms = baselineRms
+                baselineRms = baselineRms,
+                isShortSession = isShortSession
             )
         )
     }

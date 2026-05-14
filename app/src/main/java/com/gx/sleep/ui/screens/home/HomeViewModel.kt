@@ -10,10 +10,12 @@ import com.gx.sleep.data.repository.SleepRepository
 import com.gx.sleep.domain.model.SessionReport
 import com.gx.sleep.service.SleepRecordingService
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 
 data class HomeUiState(
@@ -43,6 +45,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
+    @OptIn(FlowPreview::class)
     init {
         observeRecordingState()
         observeErrors()
@@ -51,6 +54,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         checkForCrashedSession()
     }
 
+    @OptIn(FlowPreview::class)
     private fun observeRecordingState() {
         viewModelScope.launch {
             SleepRecordingService.isRecording.collect { recording ->
@@ -58,9 +62,11 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         viewModelScope.launch {
-            SleepRecordingService.currentRms.collect { rms ->
-                _uiState.value = _uiState.value.copy(currentRms = rms)
-            }
+            SleepRecordingService.currentRms
+                .debounce(300)
+                .collect { rms ->
+                    _uiState.value = _uiState.value.copy(currentRms = rms)
+                }
         }
         viewModelScope.launch {
             SleepRecordingService.currentDbfs.collect { dbfs ->
@@ -89,20 +95,23 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun loadLatestSession() {
         viewModelScope.launch {
-            repository.getLatestSession().collectLatest { session ->
-                if (session != null && session.status != SessionStatus.RUNNING) {
+            repository.getAllSessions().collectLatest { sessions ->
+                val normalSession = sessions.firstOrNull {
+                    it.status != SessionStatus.RUNNING && !it.isShortSession
+                }
+                if (normalSession != null) {
                     try {
                         val report = kotlinx.coroutines.withContext(Dispatchers.IO) {
-                            val samples = repository.getSamplesBySession(session.id)
-                            val events = repository.getEventsBySessionList(session.id)
+                            val samples = repository.getSamplesBySession(normalSession.id)
+                            val events = repository.getEventsBySessionList(normalSession.id)
                             kotlinx.coroutines.withContext(Dispatchers.Default) {
                                 SessionReportGenerator.generate(
-                                    sessionId = session.id,
-                                    startTime = session.startTime,
-                                    endTime = session.endTime,
+                                    sessionId = normalSession.id,
+                                    startTime = normalSession.startTime,
+                                    endTime = normalSession.endTime,
                                     samples = samples,
                                     events = events,
-                                    baselineRms = session.baselineRms
+                                    baselineRms = normalSession.baselineRms
                                 )
                             }
                         }
@@ -120,10 +129,8 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private fun loadRecentSessions() {
         viewModelScope.launch {
             repository.getAllSessions().collectLatest { sessions ->
-                // sessions is ORDER BY startTime DESC (newest first)
-                // take(7) gets the 7 most recent; reversed() for oldest-first chart
                 val recent = sessions
-                    .filter { it.status == SessionStatus.COMPLETED }
+                    .filter { it.status == SessionStatus.COMPLETED && !it.isShortSession }
                     .take(7)
                     .reversed()
                     .map { session ->

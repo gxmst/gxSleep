@@ -19,6 +19,12 @@ enum class AudioSaveMode(val value: String) {
     FULL_RECORDING("FULL_RECORDING")
 }
 
+enum class ThemeMode(val value: String) {
+    SYSTEM("SYSTEM"),
+    LIGHT("LIGHT"),
+    DARK("DARK")
+}
+
 data class AppSettings(
     val audioSaveMode: AudioSaveMode = AudioSaveMode.STATS_ONLY,
     val sensitivity: Int = 50,
@@ -27,7 +33,8 @@ data class AppSettings(
     val sampleRatePreference: Int = 16000,
     val enableBatteryWarning: Boolean = true,
     val enableDebugMetrics: Boolean = false,
-    val enableWakeLock: Boolean = false
+    val enableWakeLock: Boolean = false,
+    val themeMode: ThemeMode = ThemeMode.SYSTEM
 )
 
 class SettingsDataStore(private val context: Context) {
@@ -43,7 +50,10 @@ class SettingsDataStore(private val context: Context) {
             sampleRatePreference = prefs[KEY_SAMPLE_RATE_PREFERENCE] ?: 16000,
             enableBatteryWarning = prefs[KEY_ENABLE_BATTERY_WARNING] ?: true,
             enableDebugMetrics = prefs[KEY_ENABLE_DEBUG_METRICS] ?: false,
-            enableWakeLock = prefs[KEY_ENABLE_WAKE_LOCK] ?: false
+            enableWakeLock = prefs[KEY_ENABLE_WAKE_LOCK] ?: false,
+            themeMode = ThemeMode.entries.find {
+                it.value == prefs[KEY_THEME_MODE]
+            } ?: ThemeMode.SYSTEM
         )
     }
 
@@ -79,6 +89,10 @@ class SettingsDataStore(private val context: Context) {
         context.settingsDataStore.edit { it[KEY_ENABLE_WAKE_LOCK] = enabled }
     }
 
+    suspend fun updateThemeMode(mode: ThemeMode) {
+        context.settingsDataStore.edit { it[KEY_THEME_MODE] = mode.value }
+    }
+
     companion object {
         private val KEY_AUDIO_SAVE_MODE = stringPreferencesKey("audio_save_mode")
         private val KEY_SENSITIVITY = intPreferencesKey("sensitivity")
@@ -88,5 +102,6 @@ class SettingsDataStore(private val context: Context) {
         private val KEY_ENABLE_BATTERY_WARNING = booleanPreferencesKey("enable_battery_warning")
         private val KEY_ENABLE_DEBUG_METRICS = booleanPreferencesKey("enable_debug_metrics")
         private val KEY_ENABLE_WAKE_LOCK = booleanPreferencesKey("enable_wake_lock")
+        private val KEY_THEME_MODE = stringPreferencesKey("theme_mode")
     }
 }

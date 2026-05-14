@@ -19,6 +19,9 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -31,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.gx.sleep.data.datastore.AppSettings
 import com.gx.sleep.data.datastore.SettingsDataStore
+import com.gx.sleep.data.datastore.ThemeMode
 import com.gx.sleep.ui.components.SectionHeader
 import com.gx.sleep.ui.components.SleepCard
 import com.gx.sleep.ui.components.SleepDimens
@@ -66,6 +70,39 @@ fun SettingsScreen(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+
+        Spacer(modifier = Modifier.height(SleepDimens.sectionGap))
+
+        SectionHeader(title = "外观")
+        Spacer(modifier = Modifier.height(SleepDimens.itemGap))
+
+        SleepCard {
+            Text("主题模式", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "选择深色或浅色主题",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                ThemeMode.entries.forEachIndexed { index, mode ->
+                    val label = when (mode) {
+                        ThemeMode.SYSTEM -> "跟随系统"
+                        ThemeMode.LIGHT -> "浅色"
+                        ThemeMode.DARK -> "深色"
+                    }
+                    SegmentedButton(
+                        selected = settings.themeMode == mode,
+                        onClick = { scope.launch { settingsDataStore.updateThemeMode(mode) } },
+                        shape = SegmentedButtonDefaults.itemShape(index = index, count = ThemeMode.entries.size),
+                        icon = {}
+                    ) {
+                        Text(label)
+                    }
+                }
+            }
+        }
 
         Spacer(modifier = Modifier.height(SleepDimens.sectionGap))
 

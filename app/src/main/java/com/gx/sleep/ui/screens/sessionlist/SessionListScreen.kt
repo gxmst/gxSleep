@@ -183,6 +183,10 @@ private fun SessionListItem(
                         SessionStatus.STOPPED_BY_SYSTEM -> "系统停止" to Color(0xFFE8A040)
                     }
                     StatusBadge(text = statusText, color = statusColor)
+                    if (session.isShortSession) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        StatusBadge(text = "午睡", color = Color(0xFF8B80F0))
+                    }
                     if (session.duration > 0) {
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(

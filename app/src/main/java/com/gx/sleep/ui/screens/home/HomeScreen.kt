@@ -1,10 +1,19 @@
 package com.gx.sleep.ui.screens.home
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -32,7 +41,6 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -52,21 +60,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.gx.sleep.ui.components.AudioLevelIndicator
-import com.gx.sleep.ui.components.ConfirmDialog
-import com.gx.sleep.ui.components.EventColors
 import com.gx.sleep.ui.components.EventTypeChip
 import com.gx.sleep.ui.components.SectionHeader
 import com.gx.sleep.ui.components.SleepCard
@@ -125,7 +126,6 @@ fun HomeScreen(
                 .padding(top = SleepDimens.screenPaddingTop, bottom = SleepDimens.screenPaddingBottom),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // ── Header ──
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
@@ -153,7 +153,6 @@ fun HomeScreen(
 
             Spacer(modifier = Modifier.height(SleepDimens.sectionGap))
 
-            // ── Crashed warning ──
             if (state.lastSessionCrashed) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -185,7 +184,6 @@ fun HomeScreen(
                 Spacer(modifier = Modifier.height(SleepDimens.itemGap))
             }
 
-            // ── Permission checks ──
             val needsAudio = !state.hasAudioPermission
             val needsNotif = !state.hasNotificationPermission
             if (needsAudio || needsNotif) {
@@ -213,130 +211,53 @@ fun HomeScreen(
                     ) {
                         Text("授权权限")
                     }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = {
+                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                data = Uri.fromParts("package", context.packageName, null)
+                            }
+                            context.startActivity(intent)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("前往系统设置")
+                    }
                 }
                 Spacer(modifier = Modifier.height(SleepDimens.sectionGap))
             }
 
-            // ── Main action ──
             if (state.isRecording) {
-                // Recording active card
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer
-                    ),
-                    shape = RoundedCornerShape(SleepDimens.cardRadius)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(10.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF60C080))
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "正在记录中",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        AudioLevelIndicator(rms = state.currentRms, modifier = Modifier.fillMaxWidth())
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceEvenly
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("${state.eventCount}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                Text("段声音", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f))
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(16.dp))
-                        OutlinedButton(
-                            onClick = onNavigateToRecording,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Text("查看详情")
-                        }
-                    }
-                }
+                RecordingOrb(
+                    currentRms = state.currentRms,
+                    eventCount = state.eventCount,
+                    onNavigateToRecording = onNavigateToRecording
+                )
             } else {
-                // Idle state
-                SleepCard {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Box(
-                            modifier = Modifier
-                                .size(64.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primaryContainer),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                Icons.Default.PlayArrow,
-                                contentDescription = null,
-                                modifier = Modifier.size(32.dp),
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = "准备好了吗？",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "点击开始记录今晚的睡眠声音",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(20.dp))
-                        Button(
-                            onClick = {
-                                if (state.hasAudioPermission && state.hasNotificationPermission) {
-                                    viewModel.startRecording()
-                                    onNavigateToRecording()
-                                } else {
-                                    val perms = mutableListOf<String>()
-                                    if (!state.hasAudioPermission) perms.add(Manifest.permission.RECORD_AUDIO)
-                                    if (!state.hasNotificationPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                        perms.add(Manifest.permission.POST_NOTIFICATIONS)
-                                    }
-                                    if (perms.isNotEmpty()) permissionLauncher.launch(perms.toTypedArray())
-                                }
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(52.dp),
-                            shape = RoundedCornerShape(14.dp)
-                        ) {
-                            Text("开始睡眠记录", style = MaterialTheme.typography.titleMedium)
+                IdleOrb(
+                    onNavigateToRecording = {
+                        if (state.hasAudioPermission && state.hasNotificationPermission) {
+                            viewModel.startRecording()
+                            onNavigateToRecording()
+                        } else {
+                            val perms = mutableListOf<String>()
+                            if (!state.hasAudioPermission) perms.add(Manifest.permission.RECORD_AUDIO)
+                            if (!state.hasNotificationPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                perms.add(Manifest.permission.POST_NOTIFICATIONS)
+                            }
+                            if (perms.isNotEmpty()) permissionLauncher.launch(perms.toTypedArray())
                         }
                     }
-                }
+                )
             }
 
             Spacer(modifier = Modifier.height(SleepDimens.sectionGap))
 
-            // ── Last night summary ──
             state.lastReport?.let { report ->
                 SectionHeader(title = "昨晚摘要")
                 Spacer(modifier = Modifier.height(SleepDimens.itemGap))
                 SleepCard {
-                    // Score
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -396,7 +317,6 @@ fun HomeScreen(
                 Spacer(modifier = Modifier.height(SleepDimens.sectionGap))
             }
 
-            // ── Empty state ──
             if (state.lastReport == null && !state.isLoading && !state.isRecording) {
                 SleepCard {
                     Column(
@@ -418,9 +338,10 @@ fun HomeScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "开始你的第一次睡眠记录",
+                            text = "开始第一次睡眠记录，探索你的夜间声音",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            textAlign = TextAlign.Center
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                     }
@@ -428,28 +349,192 @@ fun HomeScreen(
                 Spacer(modifier = Modifier.height(SleepDimens.sectionGap))
             }
 
-            // ── Trend chart ──
-            if (state.recentEventCounts.size >= 2) {
-                SectionHeader(title = "最近 7 天趋势", subtitle = "每晚检测到的明显声音次数")
+            if (state.recentEventCounts.isNotEmpty()) {
+                SectionHeader(title = "近期趋势")
                 Spacer(modifier = Modifier.height(SleepDimens.itemGap))
                 SleepCard {
-                    MiniTrendChart(
-                        values = state.recentEventCounts.map { it.toFloat() },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(80.dp)
+                    RecentEventChart(eventCounts = state.recentEventCounts)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecordingOrb(
+    currentRms: Float,
+    eventCount: Int,
+    onNavigateToRecording: () -> Unit
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "breath")
+
+    val breathScale by infiniteTransition.animateFloat(
+        initialValue = 0.92f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(3000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "breathScale"
+    )
+
+    val glowAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.15f,
+        targetValue = 0.45f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2500, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "glowAlpha"
+    )
+
+    val rmsNormalized = ((currentRms).coerceIn(0f, 3000f)) / 3000f
+    val pulseScale = 1f + rmsNormalized * 0.15f
+
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val primaryContainerColor = MaterialTheme.colorScheme.primaryContainer
+    val surfaceColor = MaterialTheme.colorScheme.surface
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier.size(220.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val center = Offset(size.width / 2, size.height / 2)
+                val baseRadius = size.minDimension / 2 * 0.55f
+
+                for (i in 3 downTo 1) {
+                    val ringRadius = baseRadius * breathScale * pulseScale * (1f + i * 0.18f)
+                    val alpha = glowAlpha / (i * 1.5f)
+                    drawCircle(
+                        color = primaryColor.copy(alpha = alpha),
+                        radius = ringRadius,
+                        center = center
                     )
                 }
-                Spacer(modifier = Modifier.height(SleepDimens.sectionGap))
+
+                drawCircle(
+                    color = primaryContainerColor,
+                    radius = baseRadius * breathScale * pulseScale,
+                    center = center
+                )
+
+                drawCircle(
+                    color = primaryColor.copy(alpha = 0.3f),
+                    radius = baseRadius * breathScale * pulseScale,
+                    center = center,
+                    style = Stroke(width = 2.dp.toPx())
+                )
             }
 
-            // ── Disclaimer ──
-            Text(
-                text = "仅供自我观察，不构成医学诊断",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                textAlign = TextAlign.Center
-            )
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF60C080))
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "正在守护",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "$eventCount 段声音",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        OutlinedButton(
+            onClick = onNavigateToRecording,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp),
+            shape = RoundedCornerShape(14.dp)
+        ) {
+            Text("查看详情", style = MaterialTheme.typography.titleMedium)
+        }
+    }
+}
+
+@Composable
+private fun IdleOrb(
+    onNavigateToRecording: () -> Unit
+) {
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val primaryContainerColor = MaterialTheme.colorScheme.primaryContainer
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier.size(220.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val center = Offset(size.width / 2, size.height / 2)
+                val baseRadius = size.minDimension / 2 * 0.55f
+
+                drawCircle(
+                    color = primaryContainerColor.copy(alpha = 0.4f),
+                    radius = baseRadius * 1.3f,
+                    center = center
+                )
+
+                drawCircle(
+                    color = primaryContainerColor,
+                    radius = baseRadius,
+                    center = center
+                )
+
+                drawCircle(
+                    color = primaryColor.copy(alpha = 0.2f),
+                    radius = baseRadius,
+                    center = center,
+                    style = Stroke(width = 2.dp.toPx())
+                )
+            }
+
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(
+                    Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    modifier = Modifier.size(36.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "准备入睡",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Button(
+            onClick = onNavigateToRecording,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp),
+            shape = RoundedCornerShape(14.dp)
+        ) {
+            Text("开始睡眠记录", style = MaterialTheme.typography.titleMedium)
         }
     }
 }
@@ -462,10 +547,8 @@ private fun PermissionRow(
     granted: Boolean
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
     ) {
         Icon(
             icon,
@@ -479,12 +562,7 @@ private fun PermissionRow(
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (granted) {
-            Icon(
-                Icons.Outlined.CheckCircle,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = Color(0xFF60C080)
-            )
+            Icon(Icons.Outlined.CheckCircle, contentDescription = "已授权", modifier = Modifier.size(20.dp), tint = Color(0xFF60C080))
         }
     }
 }
@@ -492,46 +570,48 @@ private fun PermissionRow(
 @Composable
 private fun StatItemMini(label: String, value: String, modifier: Modifier = Modifier) {
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
-private fun MiniTrendChart(values: List<Float>, modifier: Modifier = Modifier) {
-    val lineColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-    val fillColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
-    val dotColor = MaterialTheme.colorScheme.primary
+private fun RecentEventChart(eventCounts: List<Int>) {
+    if (eventCounts.isEmpty()) return
 
-    Canvas(modifier = modifier) {
-        if (values.size < 2) return@Canvas
-        val maxVal = values.max().coerceAtLeast(1f)
-        val pad = 12f
-        val chartW = size.width - pad * 2
-        val chartH = size.height - pad * 2
+    val maxCount = eventCounts.maxOrNull()?.coerceAtLeast(1) ?: 1
+    val barColor = MaterialTheme.colorScheme.primary
+    val barColorFaded = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
 
-        val points = values.mapIndexed { i, v ->
-            val x = pad + (i.toFloat() / (values.size - 1)) * chartW
-            val y = pad + chartH * (1f - v / maxVal)
-            Offset(x, y)
-        }
-
-        val fillPath = Path().apply {
-            moveTo(points.first().x, size.height)
-            points.forEach { lineTo(it.x, it.y) }
-            lineTo(points.last().x, size.height)
-            close()
-        }
-        drawPath(fillPath, fillColor)
-
-        val linePath = Path().apply {
-            moveTo(points.first().x, points.first().y)
-            points.drop(1).forEach { lineTo(it.x, it.y) }
-        }
-        drawPath(linePath, lineColor, style = Stroke(width = 2.5f, cap = StrokeCap.Round))
-
-        points.forEach { p ->
-            drawCircle(dotColor, radius = 3.5f, center = p)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(80.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.Bottom
+    ) {
+        eventCounts.forEachIndexed { index, count ->
+            val heightFraction = count.toFloat() / maxCount
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = "$count",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Canvas(modifier = Modifier.size(width = 24.dp, height = 50.dp)) {
+                    val barHeight = size.height * heightFraction.coerceIn(0.05f, 1f)
+                    drawRoundRect(
+                        color = if (index == eventCounts.lastIndex) barColor else barColorFaded,
+                        topLeft = Offset(0f, size.height - barHeight),
+                        size = androidx.compose.ui.geometry.Size(size.width, barHeight),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx())
+                    )
+                }
+            }
         }
     }
 }

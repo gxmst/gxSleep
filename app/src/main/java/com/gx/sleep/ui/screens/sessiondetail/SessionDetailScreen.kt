@@ -20,11 +20,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -39,8 +40,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.gx.sleep.data.local.entity.SoundEventEntity
 import com.gx.sleep.domain.model.SoundEvent
 import com.gx.sleep.ui.components.EventColors
 import com.gx.sleep.ui.components.EventTypeChip
@@ -62,6 +65,8 @@ fun SessionDetailScreen(
 ) {
     val report by viewModel.report.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    val eventsWithClips by viewModel.eventsWithClips.collectAsState()
+    val playbackState by viewModel.playbackState.collectAsState()
 
     LaunchedEffect(sessionId) { viewModel.loadSession(sessionId) }
 
@@ -72,7 +77,10 @@ fun SessionDetailScreen(
             TopAppBar(
                 title = { Text("睡眠报告") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = {
+                        viewModel.stopPlayback()
+                        onBack()
+                    }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 }
@@ -107,7 +115,6 @@ fun SessionDetailScreen(
                     .padding(horizontal = SleepDimens.screenPaddingH)
                     .padding(top = 8.dp, bottom = SleepDimens.screenPaddingBottom)
             ) {
-                // ── Score hero ──
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
@@ -156,7 +163,22 @@ fun SessionDetailScreen(
 
                 Spacer(modifier = Modifier.height(SleepDimens.sectionGap))
 
-                // ── Time info ──
+                SectionHeader(title = "核心数据")
+                Spacer(modifier = Modifier.height(SleepDimens.itemGap))
+                SleepCard {
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        StatCol("睡眠时长", r.formattedDuration, Modifier.weight(1f))
+                        StatCol("鼾声", "${r.snoreCount} 次", Modifier.weight(1f))
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        StatCol("梦话", "${r.speechCount} 次", Modifier.weight(1f))
+                        StatCol("安静比例", "${r.quietPercent.toInt()}%", Modifier.weight(1f))
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(SleepDimens.sectionGap))
+
                 SectionHeader(title = "记录时间")
                 Spacer(modifier = Modifier.height(SleepDimens.itemGap))
                 SleepCard {
@@ -169,7 +191,6 @@ fun SessionDetailScreen(
 
                 Spacer(modifier = Modifier.height(SleepDimens.sectionGap))
 
-                // ── Environment stats ──
                 SectionHeader(title = "声音环境")
                 Spacer(modifier = Modifier.height(SleepDimens.itemGap))
                 SleepCard {
@@ -183,7 +204,6 @@ fun SessionDetailScreen(
                         StatCol("最高音量", "${r.maxDbfs.toInt()} dB", Modifier.weight(1f))
                     }
 
-                    // Event type chips
                     if (r.snoreCount > 0 || r.speechCount > 0 || r.coughCount > 0 || r.impactCount > 0) {
                         Spacer(modifier = Modifier.height(16.dp))
                         Text("声音类型", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -203,7 +223,6 @@ fun SessionDetailScreen(
 
                 Spacer(modifier = Modifier.height(SleepDimens.sectionGap))
 
-                // ── Volume chart ──
                 if (r.volumeCurve.isNotEmpty()) {
                     SectionHeader(title = "声音变化曲线", subtitle = "颜色区域代表不同声音类型")
                     Spacer(modifier = Modifier.height(SleepDimens.itemGap))
@@ -219,7 +238,34 @@ fun SessionDetailScreen(
 
                 Spacer(modifier = Modifier.height(SleepDimens.sectionGap))
 
-                // ── Event timeline ──
+                if (eventsWithClips.isNotEmpty()) {
+                    SectionHeader(title = "录音回放", subtitle = "点击播放夜间声音片段")
+                    Spacer(modifier = Modifier.height(SleepDimens.itemGap))
+                    SleepCard {
+                        val timeFmt = SimpleDateFormat("HH:mm:ss", Locale.CHINESE)
+                        eventsWithClips.forEachIndexed { index, event ->
+                            AudioClipItem(
+                                event = event,
+                                timeFmt = timeFmt,
+                                isPlaying = playbackState.playingEventId == event.id && playbackState.isPlaying,
+                                onPlayClick = {
+                                    viewModel.togglePlayback(event.id, event.audioClipPath!!)
+                                }
+                            )
+                            if (index < eventsWithClips.lastIndex) {
+                                Spacer(modifier = Modifier.height(2.dp))
+                                androidx.compose.material3.HorizontalDivider(
+                                    modifier = Modifier.padding(start = 28.dp),
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(SleepDimens.sectionGap))
+                }
+
                 if (r.events.isNotEmpty()) {
                     SectionHeader(title = "声音事件时间轴", subtitle = "点击查看详情")
                     Spacer(modifier = Modifier.height(SleepDimens.itemGap))
@@ -245,13 +291,12 @@ fun SessionDetailScreen(
                     Spacer(modifier = Modifier.height(SleepDimens.sectionGap))
                 }
 
-                // ── Disclaimer ──
                 Text(
                     text = "仅供自我观察，不构成医学诊断",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                     modifier = Modifier.fillMaxWidth(),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    textAlign = TextAlign.Center
                 )
             }
         }
@@ -278,6 +323,71 @@ private fun StatCol(label: String, value: String, modifier: Modifier = Modifier)
 }
 
 @Composable
+private fun AudioClipItem(
+    event: SoundEventEntity,
+    timeFmt: SimpleDateFormat,
+    isPlaying: Boolean,
+    onPlayClick: () -> Unit
+) {
+    val color = EventColors.forType(event.type)
+    val label = EventColors.labelFor(event.type)
+    val durationText = when {
+        event.durationMs < 1000 -> "<1秒"
+        event.durationMs < 10000 -> "%.1f秒".format(event.durationMs / 1000f)
+        else -> "${event.durationMs / 1000}秒"
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(10.dp)
+                .background(color, CircleShape)
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                text = "${timeFmt.format(Date(event.startTime))} · $durationText",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        IconButton(
+            onClick = onPlayClick,
+            modifier = Modifier.size(40.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(
+                        MaterialTheme.colorScheme.primaryContainer,
+                        CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = if (isPlaying) "暂停" else "播放",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun EventTimelineItem(
     event: SoundEvent,
     timeFmt: SimpleDateFormat,
@@ -285,7 +395,6 @@ private fun EventTimelineItem(
 ) {
     val color = EventColors.forType(event.type.name)
     val label = EventColors.labelFor(event.type.name)
-    // P3: Format duration properly - show "<1秒" for short events
     val durationText = when {
         event.durationMs < 1000 -> "<1秒"
         event.durationMs < 10000 -> "%.1f秒".format(event.durationMs / 1000f)

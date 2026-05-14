@@ -24,19 +24,24 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.NavType
 import androidx.navigation.navArgument
+import com.gx.sleep.data.datastore.AppSettings
+import com.gx.sleep.data.datastore.SettingsDataStore
 import com.gx.sleep.system.PermissionManager
 import com.gx.sleep.ui.screens.batteryguide.BatteryGuideScreen
 import com.gx.sleep.ui.screens.debug.DebugScreen
@@ -59,7 +64,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         setContent {
-            GxSleepTheme(darkTheme = true) {
+            val context = LocalContext.current
+            val settingsDataStore = remember { SettingsDataStore(context) }
+            val settings by settingsDataStore.settings.collectAsState(initial = AppSettings())
+            GxSleepTheme(themeMode = settings.themeMode) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
