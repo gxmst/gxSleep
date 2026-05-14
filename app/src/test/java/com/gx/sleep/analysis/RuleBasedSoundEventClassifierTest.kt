@@ -295,13 +295,14 @@ class RuleBasedSoundEventClassifierTest {
     @Test
     fun `classify SPEECH_LIKE with exact boundary values`() {
         // Just inside boundary: duration = 300ms, avgZcr = 0.081, midBandRatio = 0.21
+        // Note: maxDbfs must be <= -20f to avoid IMPACT_NOISE matching first
         val (type, _) = classifier.classify(
             durationMs = 300,
             avgRms = 3000f,
             maxRms = 5000f,
             avgZcr = 0.081f,
             avgDbfs = -25f,
-            maxDbfs = -15f,
+            maxDbfs = -21f,
             lowBandRatio = 0.3f,
             midBandRatio = 0.21f,
             highBandRatio = 0.1f,
@@ -350,11 +351,12 @@ class RuleBasedSoundEventClassifierTest {
     fun `classify MOVEMENT_FRICTION when medium duration and quiet with wide spectrum`() {
         // duration 1000-3000ms, avgDbfs -25 to -45, ZCR 0.06-0.12, balanced bands
         // Note: maxDbfs must be <= -25f to avoid COUGH_LIKE matching first
+        // Note: avgZcr must be <= 0.08f to avoid SPEECH_LIKE matching first
         val (type, confidence) = classifier.classify(
             durationMs = 1500,
             avgRms = 800f,
             maxRms = 1500f,
-            avgZcr = 0.09f,
+            avgZcr = 0.079f,
             avgDbfs = -35f,
             maxDbfs = -30f,
             lowBandRatio = 0.35f,
@@ -389,11 +391,12 @@ class RuleBasedSoundEventClassifierTest {
     fun `classify MOVEMENT_FRICTION with upper boundary values`() {
         // Just inside boundary: duration = 3000ms, avgDbfs = -45dB, avgZcr = 0.12
         // Note: maxDbfs must be <= -25f to avoid COUGH_LIKE matching first
+        // Note: avgZcr must be <= 0.08f to avoid SPEECH_LIKE matching first
         val (type, _) = classifier.classify(
             durationMs = 3000,
             avgRms = 800f,
             maxRms = 1500f,
-            avgZcr = 0.119f,
+            avgZcr = 0.079f,
             avgDbfs = -45f,
             maxDbfs = -46f,
             lowBandRatio = 0.35f,
@@ -626,11 +629,17 @@ class RuleBasedSoundEventClassifierTest {
     fun `classify UNKNOWN when no pattern matches`() {
         // Medium duration, medium loudness, no distinctive features
         // Note: must avoid all rule conditions
+        // - maxDbfs <= -20f to avoid IMPACT_NOISE
+        // - maxDbfs <= -25f or highBandRatio <= 0.2f to avoid COUGH_LIKE
+        // - lowBandRatio <= 0.4f or avgZcr >= 0.15f or rmsEnvelopeRoughness <= 0.3f to avoid SNORE_LIKE
+        // - avgZcr <= 0.08f to avoid SPEECH_LIKE
+        // - avgZcr < 0.06f to avoid MOVEMENT_FRICTION
+        // - avgDbfs >= -30f or durationMs <= 3000 to avoid ENVIRONMENT_NOISE
         val (type, confidence) = classifier.classify(
             durationMs = 1000,
             avgRms = 2000f,
             maxRms = 3000f,
-            avgZcr = 0.06f,
+            avgZcr = 0.059f,
             avgDbfs = -28f,
             maxDbfs = -26f,
             lowBandRatio = 0.35f,
