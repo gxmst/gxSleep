@@ -393,7 +393,6 @@ private fun RecordingOrb(
 
     val primaryColor = MaterialTheme.colorScheme.primary
     val primaryContainerColor = MaterialTheme.colorScheme.primaryContainer
-    val surfaceColor = MaterialTheme.colorScheme.surface
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally

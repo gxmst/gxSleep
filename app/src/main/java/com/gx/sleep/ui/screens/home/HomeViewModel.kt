@@ -33,6 +33,7 @@ data class HomeUiState(
     val lastSessionCrashed: Boolean = false
 )
 
+@OptIn(FlowPreview::class)
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     private val app = application as GxSleepApp
@@ -45,7 +46,6 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
-    @OptIn(FlowPreview::class)
     init {
         observeRecordingState()
         observeErrors()
@@ -54,7 +54,6 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         checkForCrashedSession()
     }
 
-    @OptIn(FlowPreview::class)
     private fun observeRecordingState() {
         viewModelScope.launch {
             SleepRecordingService.isRecording.collect { recording ->

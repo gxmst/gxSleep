@@ -26,6 +26,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -254,7 +255,7 @@ fun SessionDetailScreen(
                             )
                             if (index < eventsWithClips.lastIndex) {
                                 Spacer(modifier = Modifier.height(2.dp))
-                                androidx.compose.material3.HorizontalDivider(
+                                HorizontalDivider(
                                     modifier = Modifier.padding(start = 28.dp),
                                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
                                 )
@@ -279,7 +280,7 @@ fun SessionDetailScreen(
                             )
                             if (index < r.events.lastIndex) {
                                 Spacer(modifier = Modifier.height(2.dp))
-                                androidx.compose.material3.HorizontalDivider(
+                                HorizontalDivider(
                                     modifier = Modifier.padding(start = 28.dp),
                                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
                                 )
