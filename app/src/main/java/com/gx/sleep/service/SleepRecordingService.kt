@@ -1,8 +1,10 @@
 package com.gx.sleep.service
 
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
@@ -11,13 +13,16 @@ import android.util.Log
 import com.gx.sleep.GxSleepApp
 import com.gx.sleep.analysis.DetectedEvent
 import com.gx.sleep.analysis.SoundEventDetector
+import com.gx.sleep.audio.AudioEncoderWorker
 import com.gx.sleep.audio.AudioFrame
 import com.gx.sleep.audio.AudioRecorderEngine
+import com.gx.sleep.audio.AudioRingBuffer
 import com.gx.sleep.data.datastore.SettingsDataStore
 import com.gx.sleep.data.local.entity.SoundEventEntity
 import com.gx.sleep.data.local.entity.SoundSampleEntity
 import com.gx.sleep.data.repository.SleepRepository
 import com.gx.sleep.debug.DebugMetricsCollector
+import com.gx.sleep.debug.DebugLogger
 import com.gx.sleep.system.DeviceInfoProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -108,6 +113,8 @@ class SleepRecordingService : Service() {
     private lateinit var debugMetrics: DebugMetricsCollector
 
     private var eventDetector: SoundEventDetector? = null
+    private var audioRingBuffer: AudioRingBuffer? = null
+    private var audioEncoderWorker: AudioEncoderWorker? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val stopScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -117,7 +124,7 @@ class SleepRecordingService : Service() {
     private val sampleBufferLock = Any()
     private val sampleBuffer = ArrayList<SoundSampleEntity>(256)
     private val eventBufferLock = Any()
-    private val eventBuffer = ArrayList<SoundEventEntity>(32)
+    private val eventBuffer = ArrayList<SoundEventEntity>(128)
     private var dbWriteCount = 0
 
     // P2: Session-level event counter that never resets during a session
@@ -142,11 +149,88 @@ class SleepRecordingService : Service() {
     @Volatile
     private var isStopping = false
 
+    // Smart wake detection
+    private var lastScreenOffTime: Long = 0
+    private var lastScreenOnTime: Long = 0
+    private var awakeStartTime: Long = 0
+    private var awakeCount: Int = 0
+    private var awakeDurationMs: Long = 0
+    private var wakeDetectionJob: Job? = null
+
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                Intent.ACTION_SCREEN_OFF -> {
+                    val now = System.currentTimeMillis()
+                    DebugLogger.d(TAG, "Screen off detected")
+
+                    // If screen was on for more than 3 minutes, count as awake period
+                    if (awakeStartTime > 0) {
+                        val awakeDuration = now - awakeStartTime
+                        if (awakeDuration > 3 * 60 * 1000) {
+                            awakeCount++
+                            awakeDurationMs += awakeDuration
+                            DebugLogger.i(TAG, "Awake period counted: ${awakeDuration}ms, total awake count: $awakeCount")
+                        }
+                        awakeStartTime = 0
+                    }
+
+                    // Cancel any pending wake detection job
+                    wakeDetectionJob?.cancel()
+                    wakeDetectionJob = null
+
+                    // Update lastScreenOffTime
+                    lastScreenOffTime = now
+                    lastScreenOnTime = 0
+                }
+                Intent.ACTION_USER_PRESENT -> {
+                    val now = System.currentTimeMillis()
+                    DebugLogger.d(TAG, "User present (unlock) detected")
+                    lastScreenOnTime = now
+
+                    if (lastScreenOffTime > 0) {
+                        val timeSinceScreenOff = now - lastScreenOffTime
+
+                        if (timeSinceScreenOff < 4 * 60 * 60 * 1000) {
+                            // Short sleep (< 4 hours) - likely a night awakening
+                            DebugLogger.i(TAG, "Night awakening detected (${timeSinceScreenOff}ms since screen off)")
+                            awakeStartTime = now
+                        } else if (timeSinceScreenOff >= 4.5 * 60 * 60 * 1000) {
+                            // Long sleep (>= 4.5 hours) - likely waking up for the day
+                            DebugLogger.i(TAG, "Long sleep detected (${timeSinceScreenOff}ms since screen off), starting wake detection countdown")
+                            startWakeDetectionCountdown()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun startWakeDetectionCountdown() {
+        wakeDetectionJob?.cancel()
+        wakeDetectionJob = scope.launch {
+            DebugLogger.i(TAG, "Wake detection countdown started (3 minutes)")
+            kotlinx.coroutines.delay(3 * 60 * 1000) // 3 minutes
+
+            // If we reach here, user hasn't turned off screen for 3 minutes
+            // They're likely awake for the day
+            DebugLogger.i(TAG, "Wake detection countdown completed - user likely awake for the day")
+            stopRecording()
+        }
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         notificationManager = RecordingNotificationManager(this)
+
+        // Register screen receiver for smart wake detection
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_USER_PRESENT)
+        }
+        registerReceiver(screenReceiver, filter)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -202,6 +286,7 @@ class SleepRecordingService : Service() {
     }
 
     private suspend fun initializeRecording() {
+        DebugLogger.i(TAG, "Initializing recording...")
         val app = application as GxSleepApp
         repository = SleepRepository(
             app.database.sleepSessionDao(),
@@ -217,6 +302,27 @@ class SleepRecordingService : Service() {
         val settings = settingsDataStore.settings.first()
         eventDetector = SoundEventDetector(sensitivity = settings.sensitivity)
 
+        // Initialize audio ring buffer (10 seconds buffer)
+        audioRingBuffer = AudioRingBuffer(sampleRate = 16000, durationSeconds = 10)
+
+        // Initialize audio encoder worker
+        audioEncoderWorker = AudioEncoderWorker(this).apply {
+            onEncodingComplete = { eventId, filePath ->
+                scope.launch {
+                    try {
+                        repository.updateEventAudioClipPath(eventId, filePath)
+                        DebugLogger.d(TAG, "Updated event $eventId with audio clip path: $filePath")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to update event audio clip path", e)
+                        DebugLogger.e(TAG, "Failed to update event audio clip path: ${e.message}")
+                    }
+                }
+            }
+            // Clean up old clips on startup
+            cleanupOldClips()
+            start()
+        }
+
         _wakeLockEnabled.value = settings.enableWakeLock
 
         audioEngine.start(object : AudioRecorderEngine.Callback {
@@ -224,6 +330,11 @@ class SleepRecordingService : Service() {
                 if (acceptingFrames) {
                     processFrame(frame)
                 }
+            }
+
+            override fun onPcmDataAvailable(pcmData: ShortArray, offset: Int, length: Int) {
+                // Write PCM data to ring buffer for audio clip recording
+                audioRingBuffer?.write(pcmData, offset, length)
             }
 
             override fun onError(error: AudioRecorderEngine.RecordingError) {
@@ -234,6 +345,7 @@ class SleepRecordingService : Service() {
                     AudioRecorderEngine.RecordingError.DEVICE_UNAVAILABLE -> "音频设备不可用"
                     AudioRecorderEngine.RecordingError.MIC_IN_USE -> "麦克风被其他应用占用"
                 }
+                DebugLogger.e(TAG, "Audio error: $msg")
                 scope.launch { _error.emit(ErrorInfo(error, msg)) }
                 if (error == AudioRecorderEngine.RecordingError.PERMISSION_DENIED) {
                     stopRecording()
@@ -243,6 +355,7 @@ class SleepRecordingService : Service() {
 
         if (!audioEngine.isRecording) {
             Log.e(TAG, "AudioEngine failed to start")
+            DebugLogger.e(TAG, "AudioEngine failed to start")
             _error.emit(ErrorInfo(AudioRecorderEngine.RecordingError.INIT_FAILED, "录音引擎启动失败"))
             stopSelf()
             return
@@ -276,6 +389,7 @@ class SleepRecordingService : Service() {
         startDbFlushJob()
 
         Log.i(TAG, "Recording started, sessionId=$sessionId, sampleRate=${audioEngine.sampleRate}, wakeLock=${settings.enableWakeLock}")
+        DebugLogger.i(TAG, "Recording started, sessionId=$sessionId, sampleRate=${audioEngine.sampleRate}, wakeLock=${settings.enableWakeLock}")
     }
 
     private fun processFrame(frame: AudioFrame) {
@@ -356,17 +470,59 @@ class SleepRecordingService : Service() {
         sessionEventCount++
         _eventCount.value = sessionEventCount
         debugMetrics.onEventDetected()
+        DebugLogger.d(TAG, "Event detected: ${event.type.name}, confidence=${event.confidence}, duration=${event.durationMs}ms")
+
+        // Trigger audio clip recording for high-confidence SNORE_LIKE or SPEECH_LIKE events
+        if (shouldSaveAudioClip(event)) {
+            scope.launch {
+                try {
+                    // Get the recent PCM data from ring buffer
+                    val pcmData = audioRingBuffer?.getRecentSamples()
+                    if (pcmData != null && pcmData.isNotEmpty()) {
+                        // We need to get the event ID from the database
+                        // Since events are buffered, we'll need to save this event first
+                        val eventId = repository.insertEvent(entity)
+                        // Remove from buffer since we saved it directly
+                        synchronized(eventBufferLock) { eventBuffer.remove(entity) }
+
+                        // Submit encode request
+                        val request = AudioEncoderWorker.EncodeRequest(
+                            pcmData = pcmData,
+                            sampleRate = audioRingBuffer?.getSampleRate() ?: 16000,
+                            sessionId = currentSessionId,
+                            eventId = eventId,
+                            eventType = event.type.name
+                        )
+                        audioEncoderWorker?.submitEncodeRequest(request)
+                        DebugLogger.d(TAG, "Audio clip encoding requested for event $eventId")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error requesting audio clip encoding", e)
+                    DebugLogger.e(TAG, "Error requesting audio clip encoding: ${e.message}")
+                }
+            }
+        }
+    }
+
+    private fun shouldSaveAudioClip(event: DetectedEvent): Boolean {
+        // Only save audio clips for high-confidence SNORE_LIKE or SPEECH_LIKE events
+        return (event.type == com.gx.sleep.domain.model.SoundEventType.SNORE_LIKE ||
+                event.type == com.gx.sleep.domain.model.SoundEventType.SPEECH_LIKE) &&
+                event.confidence >= 0.6f
     }
 
     private fun startDbFlushJob() {
         dbFlushJob = scope.launch {
             var consecutiveFailures = 0
             while (_isRecording.value) {
-                kotlinx.coroutines.delay(10_000)
+                // P1: Flush every 90 seconds instead of 10 seconds to reduce CPU wakeups and flash writes
+                // This reduces power consumption for overnight recording
+                kotlinx.coroutines.delay(90_000)
                 try {
                     val ok = flushBuffersToDb()
                     if (ok) {
                         consecutiveFailures = 0
+                        DebugLogger.d(TAG, "Periodic flush completed successfully")
                     } else {
                         consecutiveFailures++
                         reportPeriodicFlushFailure(consecutiveFailures)
@@ -374,6 +530,7 @@ class SleepRecordingService : Service() {
                 } catch (e: Exception) {
                     consecutiveFailures++
                     Log.e(TAG, "Periodic flush exception", e)
+                    DebugLogger.e(TAG, "Periodic flush exception", e)
                     reportPeriodicFlushFailure(consecutiveFailures)
                 }
             }
@@ -382,6 +539,7 @@ class SleepRecordingService : Service() {
 
     private fun reportPeriodicFlushFailure(consecutiveFailures: Int) {
         Log.w(TAG, "Flush failure #$consecutiveFailures")
+        DebugLogger.w(TAG, "Flush failure #$consecutiveFailures")
         if (consecutiveFailures >= 3) {
             _error.tryEmit(ErrorInfo(
                 AudioRecorderEngine.RecordingError.RECORD_FAILED,
@@ -412,9 +570,11 @@ class SleepRecordingService : Service() {
                     dbWriteCount++
                     debugMetrics.onDbWrite()
                     written = true
+                    DebugLogger.d(TAG, "Wrote ${samplesToWrite.size} samples to DB")
                     break
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to write samples (attempt $attempt/$MAX_FLUSH_RETRIES)", e)
+                    DebugLogger.e(TAG, "Failed to write samples (attempt $attempt/$MAX_FLUSH_RETRIES)", e)
                     if (attempt < MAX_FLUSH_RETRIES) {
                         kotlinx.coroutines.delay(1000L * attempt)
                     }
@@ -422,6 +582,7 @@ class SleepRecordingService : Service() {
             }
             if (!written) {
                 Log.w(TAG, "Requeuing ${samplesToWrite.size} samples after $MAX_FLUSH_RETRIES failures")
+                DebugLogger.w(TAG, "Requeuing ${samplesToWrite.size} samples after $MAX_FLUSH_RETRIES failures")
                 synchronized(sampleBufferLock) {
                     sampleBuffer.addAll(0, samplesToWrite)
                 }
@@ -444,9 +605,11 @@ class SleepRecordingService : Service() {
                     dbWriteCount++
                     debugMetrics.onDbWrite()
                     written = true
+                    DebugLogger.d(TAG, "Wrote ${eventsToWrite.size} events to DB")
                     break
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to write events (attempt $attempt/$MAX_FLUSH_RETRIES)", e)
+                    DebugLogger.e(TAG, "Failed to write events (attempt $attempt/$MAX_FLUSH_RETRIES)", e)
                     if (attempt < MAX_FLUSH_RETRIES) {
                         kotlinx.coroutines.delay(1000L * attempt)
                     }
@@ -454,6 +617,7 @@ class SleepRecordingService : Service() {
             }
             if (!written) {
                 Log.w(TAG, "Requeuing ${eventsToWrite.size} events after $MAX_FLUSH_RETRIES failures")
+                DebugLogger.w(TAG, "Requeuing ${eventsToWrite.size} events after $MAX_FLUSH_RETRIES failures")
                 synchronized(eventBufferLock) {
                     eventBuffer.addAll(0, eventsToWrite)
                 }
@@ -473,6 +637,7 @@ class SleepRecordingService : Service() {
         // P2: Idempotency guard
         if (isStopping) {
             Log.w(TAG, "stopRecording already in progress, ignoring duplicate call")
+            DebugLogger.w(TAG, "stopRecording already in progress, ignoring duplicate call")
             return
         }
         isStopping = true
@@ -484,6 +649,7 @@ class SleepRecordingService : Service() {
             var completeOk = false
             try {
                 Log.i(TAG, "Stopping recording, sessionId=$capturedSessionId")
+                DebugLogger.i(TAG, "Stopping recording, sessionId=$capturedSessionId")
 
                 // Step 1: Block new frames
                 acceptingFrames = false
@@ -491,6 +657,13 @@ class SleepRecordingService : Service() {
                 // Step 2: Stop audio engine
                 try { audioEngine.stop() } catch (e: Exception) {
                     Log.e(TAG, "Error stopping audio engine", e)
+                    DebugLogger.e(TAG, "Error stopping audio engine", e)
+                }
+
+                // Step 2.5: Stop audio encoder worker
+                try { audioEncoderWorker?.stop() } catch (e: Exception) {
+                    Log.e(TAG, "Error stopping audio encoder worker", e)
+                    DebugLogger.e(TAG, "Error stopping audio encoder worker", e)
                 }
 
                 // Step 3: Flush remaining detector data (mutex ensures no concurrent processFrame)
@@ -502,6 +675,7 @@ class SleepRecordingService : Service() {
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Error flushing final data", e)
+                    DebugLogger.e(TAG, "Error flushing final data", e)
                 }
 
                 // Step 4: Flush buffers to DB with retries
@@ -509,11 +683,13 @@ class SleepRecordingService : Service() {
                 for (attempt in 1..MAX_FLUSH_RETRIES) {
                     flushOk = try { flushBuffersToDb() } catch (e: Exception) {
                         Log.e(TAG, "Error flushing buffers (attempt $attempt)", e)
+                        DebugLogger.e(TAG, "Error flushing buffers (attempt $attempt)", e)
                         false
                     }
                     if (flushOk) break
                     if (attempt < MAX_FLUSH_RETRIES) {
                         Log.w(TAG, "Final flush failed, retrying in ${attempt}s...")
+                        DebugLogger.w(TAG, "Final flush failed, retrying in ${attempt}s...")
                         kotlinx.coroutines.delay(1000L * attempt)
                     }
                 }
@@ -523,11 +699,17 @@ class SleepRecordingService : Service() {
                     try {
                         if (capturedSessionId > 0) {
                             val batteryPercent = DeviceInfoProvider.getBatteryPercent(this@SleepRecordingService)
-                            repository.completeSession(capturedSessionId, batteryPercent)
+                            repository.completeSession(
+                                sessionId = capturedSessionId,
+                                batteryPercent = batteryPercent,
+                                awakeCount = awakeCount,
+                                awakeDurationMs = awakeDurationMs
+                            )
                             completeOk = true
                         }
                     } catch (e: Exception) {
                         Log.e(TAG, "Error completing session", e)
+                        DebugLogger.e(TAG, "Error completing session", e)
                     }
                 }
 
@@ -538,15 +720,18 @@ class SleepRecordingService : Service() {
                 } else {
                     try { repository.markSessionCrashed(capturedSessionId) } catch (_: Exception) {}
                     Log.w(TAG, "Session marked CRASHED: flushOk=$flushOk, completeOk=$completeOk")
+                    DebugLogger.w(TAG, "Session marked CRASHED: flushOk=$flushOk, completeOk=$completeOk")
                 }
 
                 if (flushOk && completeOk) {
                     try { notificationManager.sendCompletionNotification(capturedSessionId) } catch (e: Exception) {
                         Log.e(TAG, "Error sending completion notification", e)
+                        DebugLogger.e(TAG, "Error sending completion notification", e)
                     }
                 }
 
                 Log.i(TAG, "Recording stopped, flushOk=$flushOk, completeOk=$completeOk, dbWrites=$dbWriteCount")
+                DebugLogger.i(TAG, "Recording stopped, flushOk=$flushOk, completeOk=$completeOk, dbWrites=$dbWriteCount")
 
             } catch (e: Exception) {
                 // P1: Catch any unexpected exception to prevent isStopping from getting stuck
@@ -596,6 +781,12 @@ class SleepRecordingService : Service() {
     }
 
     override fun onDestroy() {
+        // Unregister screen receiver
+        try { unregisterReceiver(screenReceiver) } catch (_: Exception) {}
+
+        // Cancel wake detection job
+        try { wakeDetectionJob?.cancel() } catch (_: Exception) {}
+
         if (_isRecording.value && currentSessionId > 0) {
             try {
                 if (::repository.isInitialized) {

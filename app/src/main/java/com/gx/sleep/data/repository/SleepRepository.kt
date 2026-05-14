@@ -46,7 +46,12 @@ class SleepRepository(
         return sessionDao.insert(session)
     }
 
-    suspend fun completeSession(sessionId: Long, batteryPercent: Int) {
+    suspend fun completeSession(
+        sessionId: Long,
+        batteryPercent: Int,
+        awakeCount: Int = 0,
+        awakeDurationMs: Long = 0
+    ) {
         val session = sessionDao.getById(sessionId) ?: return
         val now = System.currentTimeMillis()
         sessionDao.update(
@@ -54,7 +59,9 @@ class SleepRepository(
                 endTime = now,
                 duration = now - session.startTime,
                 status = SessionStatus.COMPLETED,
-                batteryEndPercent = batteryPercent
+                batteryEndPercent = batteryPercent,
+                awakeCount = awakeCount,
+                awakeDurationMs = awakeDurationMs
             )
         )
     }
@@ -112,8 +119,12 @@ class SleepRepository(
         return eventDao.getCountBySessionAndType(sessionId, type)
     }
 
+    suspend fun updateEventAudioClipPath(eventId: Long, audioClipPath: String) {
+        eventDao.updateAudioClipPath(eventId, audioClipPath)
+    }
+
     suspend fun getEventCounts(sessionId: Long): Map<String, Int> {
-        val types = listOf("SNORE_LIKE", "SPEECH_LIKE", "COUGH_LIKE", "IMPACT_NOISE", "ENVIRONMENT_NOISE", "UNKNOWN")
+        val types = listOf("SNORE_LIKE", "SPEECH_LIKE", "COUGH_LIKE", "IMPACT_NOISE", "MOVEMENT_FRICTION", "ENVIRONMENT_NOISE", "UNKNOWN")
         return types.associateWith { eventDao.getCountBySessionAndType(sessionId, it) }
     }
 

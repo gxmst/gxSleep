@@ -40,10 +40,11 @@ interface SoundEventClassifier {
  * Rule-based sound event classifier.
  *
  * Classification heuristics:
+ * - IMPACT_NOISE: very short, very loud, sharp attack
+ * - COUGH_LIKE: short burst, wide frequency, sharp attack
  * - SNORE_LIKE: long duration, low-mid frequency, periodic RMS envelope, low ZCR
  * - SPEECH_LIKE: medium duration, mid-high frequency, higher ZCR
- * - COUGH_LIKE: short burst, wide frequency, sharp attack
- * - IMPACT_NOISE: very short, very loud, sharp attack
+ * - MOVEMENT_FRICTION: medium duration, quiet, wide spectrum (bedding friction)
  * - ENVIRONMENT_NOISE: long, steady, low amplitude
  * - UNKNOWN: doesn't match other patterns
  */
@@ -84,6 +85,16 @@ class RuleBasedSoundEventClassifier : SoundEventClassifier {
         // SPEECH_LIKE: medium duration, higher ZCR, mid-high frequency
         if (durationMs in 300..5000 && avgZcr > 0.08f && (midBandRatio > 0.2f || highBandRatio > 0.15f)) {
             return SoundEventType.SPEECH_LIKE to 0.6f
+        }
+
+        // MOVEMENT_FRICTION: medium duration, quiet, wide spectrum (bedding friction/turning over)
+        // Duration: 1-3 seconds, dBFS: -25 to -45, wide spectrum (white noise-like)
+        if (durationMs in 1000..3000 && avgDbfs in -45f..-25f && avgZcr in 0.06f..0.12f) {
+            // Check for wide spectrum: low, mid, and high bands should be relatively balanced
+            val bandBalance = minOf(lowBandRatio, midBandRatio, highBandRatio) / maxOf(lowBandRatio, midBandRatio, highBandRatio)
+            if (bandBalance > 0.3f) {
+                return SoundEventType.MOVEMENT_FRICTION to 0.65f
+            }
         }
 
         // ENVIRONMENT_NOISE: long steady sound

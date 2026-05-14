@@ -18,6 +18,7 @@ enum class SoundEventType(val label: String) {
     SPEECH_LIKE("疑似梦话"),
     COUGH_LIKE("疑似咳嗽"),
     IMPACT_NOISE("突发噪音"),
+    MOVEMENT_FRICTION("体动摩擦"),
     ENVIRONMENT_NOISE("环境噪音"),
     UNKNOWN("未分类");
 

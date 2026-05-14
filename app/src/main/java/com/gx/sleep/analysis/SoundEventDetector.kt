@@ -1,6 +1,7 @@
 package com.gx.sleep.analysis
 
 import com.gx.sleep.audio.AudioFrame
+import com.gx.sleep.debug.DebugLogger
 import com.gx.sleep.domain.model.SoundEventType
 
 /**
@@ -114,6 +115,8 @@ class SoundEventDetector(
         )
 
         eventsDetected++
+
+        DebugLogger.d("SoundEventDetector", "Event detected: ${type.name}, confidence=$confidence, duration=${durationMs}ms, avgDbfs=$avgDbfs")
 
         val result = DetectedEvent(
             startTime = eventStartTime,

@@ -26,6 +26,12 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
+      - name: Run Lint
+        run: ./gradlew lintDebug
+
+      - name: Run Unit Tests
+        run: ./gradlew testDebugUnitTest
+
       - name: Build Debug APK
         run: ./gradlew :app:assembleDebug --stacktrace
 

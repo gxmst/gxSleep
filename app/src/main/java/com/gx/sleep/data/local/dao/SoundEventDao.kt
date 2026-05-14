@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Update
 import com.gx.sleep.data.local.entity.SoundEventEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -33,6 +34,9 @@ interface SoundEventDao {
 
     @Query("SELECT COUNT(*) FROM sound_events WHERE sessionId = :sessionId AND type = :type")
     suspend fun getCountBySessionAndType(sessionId: Long, type: String): Int
+
+    @Query("UPDATE sound_events SET audioClipPath = :audioClipPath WHERE id = :eventId")
+    suspend fun updateAudioClipPath(eventId: Long, audioClipPath: String)
 
     @Query("DELETE FROM sound_events WHERE sessionId = :sessionId")
     suspend fun deleteBySessionId(sessionId: Long)
