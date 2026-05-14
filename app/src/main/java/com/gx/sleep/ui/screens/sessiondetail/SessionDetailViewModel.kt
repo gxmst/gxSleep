@@ -32,7 +32,6 @@ class SessionDetailViewModel(application: Application) : AndroidViewModel(applic
         viewModelScope.launch {
             _isLoading.value = true
             try {
-                // P3: Fetch data and generate report on background dispatcher
                 val report = withContext(Dispatchers.IO) {
                     val session = repository.getSessionById(sessionId) ?: return@withContext null
                     val samples = repository.getSamplesBySession(sessionId)
@@ -44,7 +43,7 @@ class SessionDetailViewModel(application: Application) : AndroidViewModel(applic
                             endTime = session.endTime,
                             samples = samples,
                             events = events,
-                            baselineRms = 50f
+                            baselineRms = session.baselineRms
                         )
                     }
                 }

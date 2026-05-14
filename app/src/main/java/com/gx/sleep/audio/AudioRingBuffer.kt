@@ -49,7 +49,7 @@ class AudioRingBuffer(
      */
     @Synchronized
     fun getRecentSamples(maxSamples: Int = totalSamples): ShortArray {
-        val availableSamples = minOf(samplesWritten.toInt(), totalSamples)
+        val availableSamples = minOf(samplesWritten, totalSamples.toLong()).toInt()
         val samplesToReturn = minOf(maxSamples, availableSamples)
 
         if (samplesToReturn == 0) return ShortArray(0)
@@ -84,7 +84,7 @@ class AudioRingBuffer(
      */
     @Synchronized
     fun getAvailableSamples(): Int {
-        return minOf(samplesWritten.toInt(), totalSamples)
+        return minOf(samplesWritten, totalSamples.toLong()).toInt()
     }
 
     /**

@@ -37,7 +37,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -230,7 +230,11 @@ class SleepRecordingService : Service() {
             addAction(Intent.ACTION_SCREEN_OFF)
             addAction(Intent.ACTION_USER_PRESENT)
         }
-        registerReceiver(screenReceiver, filter)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(screenReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(screenReceiver, filter)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -286,6 +290,18 @@ class SleepRecordingService : Service() {
     }
 
     private suspend fun initializeRecording() {
+        _isRecording.value = false
+        _currentRms.value = 0f
+        _currentDbfs.value = -120f
+        _sessionId.value = null
+        _eventCount.value = 0
+        _wakeLockHeld.value = false
+        _wakeLockEnabled.value = false
+        _isStopping.value = false
+        isStopping = false
+        acceptingFrames = false
+        foregroundStarted = false
+
         DebugLogger.i(TAG, "Initializing recording...")
         val app = application as GxSleepApp
         repository = SleepRepository(
@@ -699,11 +715,13 @@ class SleepRecordingService : Service() {
                     try {
                         if (capturedSessionId > 0) {
                             val batteryPercent = DeviceInfoProvider.getBatteryPercent(this@SleepRecordingService)
+                            val capturedBaselineRms = eventDetector?.getBaselineRms() ?: 50f
                             repository.completeSession(
                                 sessionId = capturedSessionId,
                                 batteryPercent = batteryPercent,
                                 awakeCount = awakeCount,
-                                awakeDurationMs = awakeDurationMs
+                                awakeDurationMs = awakeDurationMs,
+                                baselineRms = capturedBaselineRms
                             )
                             completeOk = true
                         }
@@ -790,7 +808,7 @@ class SleepRecordingService : Service() {
         if (_isRecording.value && currentSessionId > 0) {
             try {
                 if (::repository.isInitialized) {
-                    runBlocking {
+                    GlobalScope.launch(Dispatchers.IO) {
                         repository.markSessionCrashed(currentSessionId)
                     }
                 }
@@ -799,6 +817,7 @@ class SleepRecordingService : Service() {
             }
         }
         try { if (::audioEngine.isInitialized) audioEngine.release() } catch (_: Exception) {}
+        try { audioEncoderWorker?.release() } catch (_: Exception) {}
         try { scope.cancel() } catch (_: Exception) {}
         releaseWakeLock()
         super.onDestroy()

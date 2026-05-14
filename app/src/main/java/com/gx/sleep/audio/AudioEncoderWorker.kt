@@ -43,6 +43,7 @@ class AudioEncoderWorker(private val context: Context) {
     )
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val callbackScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val encodeChannel = Channel<EncodeRequest>(Channel.UNLIMITED)
     private var workerJob: Job? = null
     private var clipsSavedTonight = 0
@@ -53,6 +54,7 @@ class AudioEncoderWorker(private val context: Context) {
     fun start() {
         if (workerJob != null) return
 
+        clipsSavedTonight = 0
         workerJob = scope.launch {
             DebugLogger.i(TAG, "AudioEncoderWorker started")
             for (request in encodeChannel) {
@@ -74,6 +76,11 @@ class AudioEncoderWorker(private val context: Context) {
         workerJob = null
         scope.cancel()
         DebugLogger.i(TAG, "AudioEncoderWorker stopped")
+    }
+
+    fun release() {
+        stop()
+        callbackScope.cancel()
     }
 
     /**
@@ -109,9 +116,9 @@ class AudioEncoderWorker(private val context: Context) {
             encodePcmToM4a(request.pcmData, request.sampleRate, outputFile)
             clipsSavedTonight++
 
-            // Update database with the file path
-            // This is done via callback to avoid direct database access from this class
-            onEncodingComplete?.invoke(request.eventId, outputFile.absolutePath)
+            callbackScope.launch {
+                onEncodingComplete?.invoke(request.eventId, outputFile.absolutePath)
+            }
 
             DebugLogger.i(TAG, "Audio clip saved: ${outputFile.absolutePath} (clips tonight: $clipsSavedTonight)")
         } catch (e: Exception) {
@@ -154,9 +161,7 @@ class AudioEncoderWorker(private val context: Context) {
             // Convert Short array to Byte array (little-endian)
             val byteBuffer = ByteBuffer.allocate(pcmData.size * 2)
             byteBuffer.order(java.nio.ByteOrder.LITTLE_ENDIAN)
-            for (sample in pcmData) {
-                byteBuffer.putShort(sample)
-            }
+            byteBuffer.asShortBuffer().put(pcmData)
             val pcmBytes = byteBuffer.array()
 
             var inputOffset = 0

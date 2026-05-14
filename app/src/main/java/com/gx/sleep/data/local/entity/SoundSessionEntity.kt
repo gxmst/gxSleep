@@ -19,7 +19,8 @@ data class SleepSessionEntity(
     val deviceInfo: String = "",
     val notes: String = "",
     val awakeCount: Int = 0,
-    val awakeDurationMs: Long = 0
+    val awakeDurationMs: Long = 0,
+    val baselineRms: Float = 50f
 )
 
 enum class SessionStatus {

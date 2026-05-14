@@ -92,7 +92,6 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             repository.getLatestSession().collectLatest { session ->
                 if (session != null && session.status != SessionStatus.RUNNING) {
                     try {
-                        // P3: Fetch and generate on background dispatcher
                         val report = kotlinx.coroutines.withContext(Dispatchers.IO) {
                             val samples = repository.getSamplesBySession(session.id)
                             val events = repository.getEventsBySessionList(session.id)
@@ -103,7 +102,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                                     endTime = session.endTime,
                                     samples = samples,
                                     events = events,
-                                    baselineRms = 50f
+                                    baselineRms = session.baselineRms
                                 )
                             }
                         }
