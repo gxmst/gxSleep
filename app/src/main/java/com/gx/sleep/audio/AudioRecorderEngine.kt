@@ -121,6 +121,14 @@ class AudioRecorderEngine(private val context: Context) {
     fun getReadErrorCount(): Int = readErrorCount
 
     private fun findWorkingSampleRate(): Int {
+        // Permission check: this method is only called from start() which already checks permission
+        // but we add an explicit check here to satisfy lint
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            return 16000 // Default rate, will fail later in start() with proper error
+        }
+
         for (rate in PREFERRED_SAMPLE_RATES) {
             val minBuf = AudioRecord.getMinBufferSize(rate, CHANNEL_CONFIG, AUDIO_FORMAT)
             if (minBuf != AudioRecord.ERROR_BAD_VALUE && minBuf != AudioRecord.ERROR) {
