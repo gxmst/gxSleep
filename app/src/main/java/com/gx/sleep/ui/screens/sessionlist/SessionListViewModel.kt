@@ -18,9 +18,11 @@ class SessionListViewModel(application: Application) : AndroidViewModel(applicat
     )
 
     val sessions = repository.getAllSessions()
-        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     suspend fun deleteSession(id: Long) {
         repository.deleteSession(id)
     }
+
+    fun refresh() {}
 }

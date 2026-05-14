@@ -134,6 +134,8 @@ class SleepRepository(
 
     // Delete operations
     suspend fun deleteSession(sessionId: Long) {
+        eventDao.deleteBySessionId(sessionId)
+        sampleDao.deleteBySessionId(sessionId)
         sessionDao.deleteById(sessionId)
     }
 

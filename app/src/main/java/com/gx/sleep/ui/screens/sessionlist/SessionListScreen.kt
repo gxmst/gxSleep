@@ -1,6 +1,5 @@
 package com.gx.sleep.ui.screens.sessionlist
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -24,6 +23,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -33,7 +33,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -44,6 +43,7 @@ import com.gx.sleep.ui.components.ConfirmDialog
 import com.gx.sleep.ui.components.EmptyState
 import com.gx.sleep.ui.components.SleepDimens
 import com.gx.sleep.ui.components.StatusBadge
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -57,6 +57,7 @@ fun SessionListScreen(
     val sessions by viewModel.sessions.collectAsState()
     val scope = rememberCoroutineScope()
     var showDeleteDialog by remember { mutableStateOf<Long?>(null) }
+    var isRefreshing by remember { mutableStateOf(false) }
     val dateFormat = SimpleDateFormat("M月d日 HH:mm", Locale.CHINESE)
 
     if (showDeleteDialog != null) {
@@ -73,69 +74,80 @@ fun SessionListScreen(
         )
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = SleepDimens.screenPaddingH)
-            .padding(top = SleepDimens.screenPaddingTop, bottom = SleepDimens.screenPaddingBottom)
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = {
+            scope.launch {
+                isRefreshing = true
+                viewModel.refresh()
+                delay(500)
+                isRefreshing = false
+            }
+        },
+        modifier = Modifier.fillMaxSize()
     ) {
-        Text(
-            text = "历史记录",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = "查看每晚的睡眠声音记录",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        Spacer(modifier = Modifier.height(SleepDimens.sectionGap))
-
-        if (sessions.isEmpty()) {
-            EmptyState(
-                icon = {
-                    Icon(
-                        Icons.Outlined.History,
-                        contentDescription = null,
-                        modifier = Modifier.size(48.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                    )
-                },
-                title = "还没有记录",
-                subtitle = "开始第一次睡眠记录吧"
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = SleepDimens.screenPaddingH)
+                .padding(top = SleepDimens.screenPaddingTop, bottom = SleepDimens.screenPaddingBottom)
+        ) {
+            Text(
+                text = "历史记录",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold
             )
-        } else {
-            // P2: Filter out RUNNING sessions - they have no valid report data
-            val completedSessions = sessions.filter { it.status != SessionStatus.RUNNING }
-            if (completedSessions.isEmpty()) {
-                // P3: Only RUNNING sessions exist — show recording hint, not empty
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "查看每晚的睡眠声音记录",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(SleepDimens.sectionGap))
+
+            if (sessions.isEmpty()) {
                 EmptyState(
                     icon = {
                         Icon(
                             Icons.Outlined.History,
                             contentDescription = null,
                             modifier = Modifier.size(48.dp),
-                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
                         )
                     },
-                    title = "正在录制中",
-                    subtitle = "完成录制后这里会显示历史记录"
+                    title = "还没有记录",
+                    subtitle = "开始第一次睡眠记录吧"
                 )
             } else {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(SleepDimens.itemGap)
-                ) {
-                    items(completedSessions, key = { it.id }) { session ->
-                        SessionListItem(
-                            session = session,
-                            dateFormat = dateFormat,
-                            onClick = { onSessionClick(session.id) },
-                            onDelete = { showDeleteDialog = session.id }
-                        )
+                val completedSessions = sessions.filter { it.status != SessionStatus.RUNNING }
+                if (completedSessions.isEmpty()) {
+                    EmptyState(
+                        icon = {
+                            Icon(
+                                Icons.Outlined.History,
+                                contentDescription = null,
+                                modifier = Modifier.size(48.dp),
+                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                            )
+                        },
+                        title = "正在录制中",
+                        subtitle = "完成录制后这里会显示历史记录"
+                    )
+                } else {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(SleepDimens.itemGap)
+                    ) {
+                        items(completedSessions, key = { it.id }) { session ->
+                            SessionListItem(
+                                session = session,
+                                dateFormat = dateFormat,
+                                onClick = { onSessionClick(session.id) },
+                                onDelete = { showDeleteDialog = session.id }
+                            )
+                        }
+                        item { Spacer(modifier = Modifier.height(16.dp)) }
                     }
-                    item { Spacer(modifier = Modifier.height(16.dp)) }
                 }
             }
         }
@@ -185,7 +197,7 @@ private fun SessionListItem(
                     StatusBadge(text = statusText, color = statusColor)
                     if (session.isShortSession) {
                         Spacer(modifier = Modifier.width(8.dp))
-                        StatusBadge(text = "午睡", color = Color(0xFF8B80F0))
+                        StatusBadge(text = "短时", color = Color(0xFF8B80F0))
                     }
                     if (session.duration > 0) {
                         Spacer(modifier = Modifier.width(8.dp))

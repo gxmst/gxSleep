@@ -717,7 +717,7 @@ class SleepRecordingService : Service() {
                             val batteryPercent = DeviceInfoProvider.getBatteryPercent(this@SleepRecordingService)
                             val capturedBaselineRms = eventDetector?.getBaselineRms() ?: 50f
                             val duration = System.currentTimeMillis() - recordingStartTime
-                            val shortSession = duration < 30 * 60 * 1000L
+                            val shortSession = duration < 60 * 1000L
                             repository.completeSession(
                                 sessionId = capturedSessionId,
                                 batteryPercent = batteryPercent,

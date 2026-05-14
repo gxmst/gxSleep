@@ -62,6 +62,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -475,6 +476,17 @@ private fun IdleOrb(
     val primaryColor = MaterialTheme.colorScheme.primary
     val primaryContainerColor = MaterialTheme.colorScheme.primaryContainer
 
+    val infiniteTransition = rememberInfiniteTransition(label = "idleBreath")
+    val breathScale by infiniteTransition.animateFloat(
+        initialValue = 0.96f,
+        targetValue = 1.04f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "idleBreathScale"
+    )
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -488,13 +500,13 @@ private fun IdleOrb(
 
                 drawCircle(
                     color = primaryContainerColor.copy(alpha = 0.4f),
-                    radius = baseRadius * 1.3f,
+                    radius = baseRadius * 1.3f * breathScale,
                     center = center
                 )
 
                 drawCircle(
                     color = primaryContainerColor,
-                    radius = baseRadius,
+                    radius = baseRadius * breathScale,
                     center = center
                 )
 
@@ -526,11 +538,22 @@ private fun IdleOrb(
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        val btnPulse by infiniteTransition.animateFloat(
+            initialValue = 0.97f,
+            targetValue = 1.03f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1500, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "btnPulse"
+        )
+
         Button(
             onClick = onNavigateToRecording,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(52.dp),
+                .height(52.dp)
+                .graphicsLayer { scaleX = btnPulse; scaleY = btnPulse },
             shape = RoundedCornerShape(14.dp)
         ) {
             Text("开始睡眠记录", style = MaterialTheme.typography.titleMedium)

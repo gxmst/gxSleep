@@ -97,6 +97,8 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             repository.getAllSessions().collectLatest { sessions ->
                 val normalSession = sessions.firstOrNull {
                     it.status != SessionStatus.RUNNING && !it.isShortSession
+                } ?: sessions.firstOrNull {
+                    it.status != SessionStatus.RUNNING
                 }
                 if (normalSession != null) {
                     try {
@@ -129,7 +131,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             repository.getAllSessions().collectLatest { sessions ->
                 val recent = sessions
-                    .filter { it.status == SessionStatus.COMPLETED && !it.isShortSession }
+                    .filter { it.status == SessionStatus.COMPLETED }
                     .take(7)
                     .reversed()
                     .map { session ->
