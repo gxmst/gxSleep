@@ -2,7 +2,6 @@ package com.gx.sleep.ui.screens.sessiondetail
 
 import android.app.Application
 import android.media.MediaPlayer
-import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.gx.sleep.GxSleepApp
@@ -42,6 +41,9 @@ class SessionDetailViewModel(application: Application) : AndroidViewModel(applic
 
     private val _playbackState = MutableStateFlow(PlaybackState())
     val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
+
+    private val _playbackError = MutableStateFlow<String?>(null)
+    val playbackError: StateFlow<String?> = _playbackError.asStateFlow()
 
     private var mediaPlayer: MediaPlayer? = null
 
@@ -83,7 +85,7 @@ class SessionDetailViewModel(application: Application) : AndroidViewModel(applic
 
         val file = File(audioClipPath)
         if (!file.exists()) {
-            Toast.makeText(getApplication(), "音频文件不存在", Toast.LENGTH_SHORT).show()
+            _playbackError.value = "音频文件不存在"
             return
         }
 
@@ -124,6 +126,10 @@ class SessionDetailViewModel(application: Application) : AndroidViewModel(applic
         } catch (_: Exception) {}
         mediaPlayer = null
         _playbackState.value = PlaybackState()
+    }
+
+    fun dismissPlaybackError() {
+        _playbackError.value = null
     }
 
     override fun onCleared() {

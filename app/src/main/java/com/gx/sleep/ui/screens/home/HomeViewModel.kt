@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class HomeUiState(
     val isRecording: Boolean = false,
@@ -130,13 +131,15 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private fun loadRecentSessions() {
         viewModelScope.launch {
             repository.getAllSessions().collectLatest { sessions ->
-                val recent = sessions
-                    .filter { it.status == SessionStatus.COMPLETED }
-                    .take(7)
-                    .reversed()
-                    .map { session ->
-                        repository.getEventsBySessionList(session.id).size
-                    }
+                val recent = withContext(Dispatchers.IO) {
+                    sessions
+                        .filter { it.status == SessionStatus.COMPLETED }
+                        .take(7)
+                        .reversed()
+                        .map { session ->
+                            repository.getEventsBySessionList(session.id).size
+                        }
+                }
                 _uiState.value = _uiState.value.copy(recentEventCounts = recent)
             }
         }

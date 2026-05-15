@@ -192,10 +192,10 @@ fun HomeScreen(
                     SectionHeader(title = "需要授权", subtitle = "以下权限用于睡眠记录功能")
                     Spacer(modifier = Modifier.height(12.dp))
                     if (needsAudio) {
-                        PermissionRow(Icons.Outlined.Mic, "麦克风权限", "采集环境声音", false)
+                        PermissionRow(Icons.Outlined.Mic, "麦克风权限", "采集环境声音", state.hasAudioPermission)
                     }
                     if (needsNotif) {
-                        PermissionRow(Icons.Outlined.Notifications, "通知权限", "显示录制状态", false)
+                        PermissionRow(Icons.Outlined.Notifications, "通知权限", "显示录制状态", state.hasNotificationPermission)
                     }
                     Spacer(modifier = Modifier.height(12.dp))
                     Button(
@@ -512,7 +512,7 @@ private fun IdleOrb(
 
                 drawCircle(
                     color = primaryColor.copy(alpha = 0.2f),
-                    radius = baseRadius,
+                    radius = baseRadius * breathScale,
                     center = center,
                     style = Stroke(width = 2.dp.toPx())
                 )

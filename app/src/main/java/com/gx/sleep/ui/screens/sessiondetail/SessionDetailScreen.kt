@@ -31,12 +31,15 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -68,12 +71,22 @@ fun SessionDetailScreen(
     val isLoading by viewModel.isLoading.collectAsState()
     val eventsWithClips by viewModel.eventsWithClips.collectAsState()
     val playbackState by viewModel.playbackState.collectAsState()
+    val playbackError by viewModel.playbackError.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(sessionId) { viewModel.loadSession(sessionId) }
+
+    LaunchedEffect(playbackError) {
+        playbackError?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.dismissPlaybackError()
+        }
+    }
 
     val dateFormat = SimpleDateFormat("M月d日 HH:mm", Locale.CHINESE)
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("睡眠报告") },
@@ -240,11 +253,12 @@ fun SessionDetailScreen(
                 Spacer(modifier = Modifier.height(SleepDimens.sectionGap))
 
                 if (eventsWithClips.isNotEmpty()) {
+                    val displayClips = eventsWithClips.take(10)
                     SectionHeader(title = "录音回放", subtitle = "点击播放夜间声音片段")
                     Spacer(modifier = Modifier.height(SleepDimens.itemGap))
                     SleepCard {
                         val timeFmt = SimpleDateFormat("HH:mm:ss", Locale.CHINESE)
-                        eventsWithClips.forEachIndexed { index, event ->
+                        displayClips.forEachIndexed { index, event ->
                             AudioClipItem(
                                 event = event,
                                 timeFmt = timeFmt,
@@ -253,7 +267,7 @@ fun SessionDetailScreen(
                                     viewModel.togglePlayback(event.id, event.audioClipPath!!)
                                 }
                             )
-                            if (index < eventsWithClips.lastIndex) {
+                            if (index < displayClips.lastIndex) {
                                 Spacer(modifier = Modifier.height(2.dp))
                                 HorizontalDivider(
                                     modifier = Modifier.padding(start = 28.dp),
@@ -268,17 +282,19 @@ fun SessionDetailScreen(
                 }
 
                 if (r.events.isNotEmpty()) {
-                    SectionHeader(title = "声音事件时间轴", subtitle = "点击查看详情")
+                    val displayEvents = r.events.take(20)
+                    val hasMore = r.events.size > 20
+                    SectionHeader(title = "声音事件时间轴", subtitle = if (hasMore) "显示前 20 条，共 ${r.events.size} 条" else "点击查看详情")
                     Spacer(modifier = Modifier.height(SleepDimens.itemGap))
                     SleepCard {
                         val timeFmt = SimpleDateFormat("HH:mm:ss", Locale.CHINESE)
-                        r.events.forEachIndexed { index, event ->
+                        displayEvents.forEachIndexed { index, event ->
                             EventTimelineItem(
                                 event = event,
                                 timeFmt = timeFmt,
                                 onClick = { onEventClick(event.id) }
                             )
-                            if (index < r.events.lastIndex) {
+                            if (index < displayEvents.lastIndex) {
                                 Spacer(modifier = Modifier.height(2.dp))
                                 HorizontalDivider(
                                     modifier = Modifier.padding(start = 28.dp),

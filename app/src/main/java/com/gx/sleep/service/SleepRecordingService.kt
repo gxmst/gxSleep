@@ -268,6 +268,8 @@ class SleepRecordingService : Service() {
         }
 
         if (!_isRecording.value) {
+            _isStopping.value = false
+            isStopping = false
             startRecording()
         }
         return START_NOT_STICKY
