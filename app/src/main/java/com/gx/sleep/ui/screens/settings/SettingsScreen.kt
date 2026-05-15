@@ -32,8 +32,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.gx.sleep.GxSleepApp
 import com.gx.sleep.data.datastore.AppSettings
-import com.gx.sleep.data.datastore.SettingsDataStore
 import com.gx.sleep.data.datastore.ThemeMode
 import com.gx.sleep.ui.components.SectionHeader
 import com.gx.sleep.ui.components.SleepCard
@@ -48,7 +48,7 @@ fun SettingsScreen(
     onDebug: () -> Unit
 ) {
     val context = LocalContext.current
-    val settingsDataStore = remember { SettingsDataStore(context) }
+    val settingsDataStore = remember { (context.applicationContext as GxSleepApp).settingsDataStore }
     val settings by settingsDataStore.settings.collectAsState(initial = AppSettings())
     val scope = rememberCoroutineScope()
 

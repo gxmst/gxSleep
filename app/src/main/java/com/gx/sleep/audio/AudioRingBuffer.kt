@@ -9,7 +9,7 @@ package com.gx.sleep.audio
  */
 class AudioRingBuffer(
     private val sampleRate: Int,
-    private val durationSeconds: Int
+    private val durationSeconds: Int = 5
 ) {
     private val totalSamples = sampleRate * durationSeconds
     private val buffer = ShortArray(totalSamples)

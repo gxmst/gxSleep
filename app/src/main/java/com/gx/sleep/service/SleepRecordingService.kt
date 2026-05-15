@@ -191,13 +191,9 @@ class SleepRecordingService : Service() {
                     if (lastScreenOffTime > 0) {
                         val timeSinceScreenOff = now - lastScreenOffTime
 
-                        if (timeSinceScreenOff < 4 * 60 * 60 * 1000) {
-                            // Short sleep (< 4 hours) - likely a night awakening
-                            DebugLogger.i(TAG, "Night awakening detected (${timeSinceScreenOff}ms since screen off)")
+                        if (timeSinceScreenOff < 4.5 * 60 * 60 * 1000) {
                             awakeStartTime = now
-                        } else if (timeSinceScreenOff >= 4.5 * 60 * 60 * 1000) {
-                            // Long sleep (>= 4.5 hours) - likely waking up for the day
-                            DebugLogger.i(TAG, "Long sleep detected (${timeSinceScreenOff}ms since screen off), starting wake detection countdown")
+                        } else {
                             startWakeDetectionCountdown()
                         }
                     }
@@ -311,7 +307,7 @@ class SleepRecordingService : Service() {
             app.database.soundSampleDao(),
             app.database.soundEventDao()
         )
-        settingsDataStore = SettingsDataStore(this)
+        settingsDataStore = app.settingsDataStore
         debugMetrics = DebugMetricsCollector()
         audioEngine = AudioRecorderEngine(this)
 
@@ -320,8 +316,7 @@ class SleepRecordingService : Service() {
         val settings = settingsDataStore.settings.first()
         eventDetector = SoundEventDetector(sensitivity = settings.sensitivity)
 
-        // Initialize audio ring buffer (10 seconds buffer)
-        audioRingBuffer = AudioRingBuffer(sampleRate = 16000, durationSeconds = 10)
+        audioRingBuffer = AudioRingBuffer(sampleRate = 16000)
 
         // Initialize audio encoder worker
         audioEncoderWorker = AudioEncoderWorker(this).apply {
@@ -351,8 +346,10 @@ class SleepRecordingService : Service() {
             }
 
             override fun onPcmDataAvailable(pcmData: ShortArray, offset: Int, length: Int) {
-                // Write PCM data to ring buffer for audio clip recording
-                audioRingBuffer?.write(pcmData, offset, length)
+                val rms = _currentRms.value
+                if (rms > 100f) {
+                    audioRingBuffer?.write(pcmData, offset, length)
+                }
             }
 
             override fun onError(error: AudioRecorderEngine.RecordingError) {
@@ -483,27 +480,17 @@ class SleepRecordingService : Service() {
             maxDbfs = event.maxDbfs,
             audioClipPath = null
         )
-        synchronized(eventBufferLock) { eventBuffer.add(entity) }
-        // P2: Increment session-level counter, never reset during session
         sessionEventCount++
         _eventCount.value = sessionEventCount
         debugMetrics.onEventDetected()
         DebugLogger.d(TAG, "Event detected: ${event.type.name}, confidence=${event.confidence}, duration=${event.durationMs}ms")
 
-        // Trigger audio clip recording for high-confidence SNORE_LIKE or SPEECH_LIKE events
         if (shouldSaveAudioClip(event)) {
             scope.launch {
                 try {
-                    // Get the recent PCM data from ring buffer
+                    val eventId = repository.insertEvent(entity)
                     val pcmData = audioRingBuffer?.getRecentSamples()
                     if (pcmData != null && pcmData.isNotEmpty()) {
-                        // We need to get the event ID from the database
-                        // Since events are buffered, we'll need to save this event first
-                        val eventId = repository.insertEvent(entity)
-                        // Remove from buffer since we saved it directly
-                        synchronized(eventBufferLock) { eventBuffer.remove(entity) }
-
-                        // Submit encode request
                         val request = AudioEncoderWorker.EncodeRequest(
                             pcmData = pcmData,
                             sampleRate = audioRingBuffer?.getSampleRate() ?: 16000,
@@ -517,8 +504,11 @@ class SleepRecordingService : Service() {
                 } catch (e: Exception) {
                     Log.e(TAG, "Error requesting audio clip encoding", e)
                     DebugLogger.e(TAG, "Error requesting audio clip encoding: ${e.message}")
+                    synchronized(eventBufferLock) { eventBuffer.add(entity) }
                 }
             }
+        } else {
+            synchronized(eventBufferLock) { eventBuffer.add(entity) }
         }
     }
 
@@ -533,9 +523,7 @@ class SleepRecordingService : Service() {
         dbFlushJob = scope.launch {
             var consecutiveFailures = 0
             while (_isRecording.value) {
-                // P1: Flush every 90 seconds instead of 10 seconds to reduce CPU wakeups and flash writes
-                // This reduces power consumption for overnight recording
-                kotlinx.coroutines.delay(90_000)
+                kotlinx.coroutines.delay(120_000)
                 try {
                     val ok = flushBuffersToDb()
                     if (ok) {
@@ -787,6 +775,18 @@ class SleepRecordingService : Service() {
             Log.i(TAG, "WakeLock acquired (experimental, enabled by user)")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to acquire WakeLock", e)
+        }
+
+        scope.launch {
+            while (_isRecording.value && _wakeLockHeld.value) {
+                kotlinx.coroutines.delay(5 * 60_000L)
+                val battery = DeviceInfoProvider.getBatteryPercent(this@SleepRecordingService)
+                if (battery in 1..15) {
+                    Log.w(TAG, "Battery low ($battery%), releasing WakeLock to save power")
+                    releaseWakeLock()
+                    break
+                }
+            }
         }
     }
 

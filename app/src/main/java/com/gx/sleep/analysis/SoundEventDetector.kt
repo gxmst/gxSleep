@@ -17,6 +17,8 @@ class SoundEventDetector(
         private const val BASELINE_WINDOW_SECONDS = 30
         private const val EVENT_MIN_DURATION_MS = 200
         private const val SILENCE_TIMEOUT_MS = 800
+        private const val MAX_EVENT_FRAMES = 1000
+        private const val BASELINE_UPDATE_INTERVAL_FRAMES = 10
     }
 
     private var baselineRms: Float = 50f
@@ -27,21 +29,24 @@ class SoundEventDetector(
     private var eventStartTime: Long = 0
     private var eventFrames = mutableListOf<AudioFrame>()
     private var inEvent = false
+    private var lastLoudFrameTimestamp: Long = 0
 
     private val thresholdFactor: Float
         get() = 1.5f + (100 - sensitivity) * 0.05f
 
     private var totalFramesProcessed = 0L
     private var eventsDetected = 0L
+    private var baselineFrameCounter = 0
 
     fun feedFrame(frame: AudioFrame): DetectedEvent? {
         totalFramesProcessed++
 
-        // P2: Only update baseline when NOT inside an event.
-        // This prevents sustained loud sounds (snoring, speech) from
-        // raising the noise floor and causing event fragmentation.
         if (!inEvent) {
-            updateBaseline(frame)
+            baselineFrameCounter++
+            if (baselineFrameCounter >= BASELINE_UPDATE_INTERVAL_FRAMES) {
+                baselineFrameCounter = 0
+                updateBaseline(frame)
+            }
         }
 
         val threshold = baselineRms * thresholdFactor
@@ -52,12 +57,19 @@ class SoundEventDetector(
                 inEvent = true
                 eventStartTime = frame.timestamp
                 eventFrames.clear()
+                lastLoudFrameTimestamp = frame.timestamp
+            } else {
+                lastLoudFrameTimestamp = frame.timestamp
             }
-            eventFrames.add(frame)
+            if (eventFrames.size < MAX_EVENT_FRAMES) {
+                eventFrames.add(frame)
+            }
             return null
         } else if (inEvent) {
-            eventFrames.add(frame)
-            val silenceDuration = frame.timestamp - (eventFrames.lastOrNull { it.rms > threshold }?.timestamp ?: eventStartTime)
+            if (eventFrames.size < MAX_EVENT_FRAMES) {
+                eventFrames.add(frame)
+            }
+            val silenceDuration = frame.timestamp - lastLoudFrameTimestamp
             if (silenceDuration > SILENCE_TIMEOUT_MS) {
                 return finalizeEvent()
             }
@@ -133,14 +145,15 @@ class SoundEventDetector(
     }
 
     private fun updateBaseline(frame: AudioFrame) {
-        if (baselineSamples.size < BASELINE_WINDOW_SECONDS * 20) {
+        val windowSize = BASELINE_WINDOW_SECONDS * 10
+        if (baselineSamples.size < windowSize) {
             baselineSamples.addLast(frame.rms)
         } else {
             baselineSamples.removeFirst()
             baselineSamples.addLast(frame.rms)
         }
 
-        if (!baselineInitialized && baselineSamples.size >= 60) {
+        if (!baselineInitialized && baselineSamples.size >= 30) {
             baselineRms = percentile(baselineSamples.toList(), 0.25f)
             baselineInitialized = true
         } else if (baselineInitialized) {

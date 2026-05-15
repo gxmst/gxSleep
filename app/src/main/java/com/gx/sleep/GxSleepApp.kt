@@ -3,13 +3,15 @@ package com.gx.sleep
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.os.Build
+import com.gx.sleep.data.datastore.SettingsDataStore
 import com.gx.sleep.data.local.database.AppDatabase
 
 class GxSleepApp : Application() {
 
     lateinit var database: AppDatabase
         private set
+
+    val settingsDataStore by lazy { SettingsDataStore(this) }
 
     override fun onCreate() {
         super.onCreate()

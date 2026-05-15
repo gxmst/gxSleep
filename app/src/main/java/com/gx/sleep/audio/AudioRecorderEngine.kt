@@ -37,7 +37,7 @@ class AudioRecorderEngine(private val context: Context) {
         private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
         private val PREFERRED_SAMPLE_RATES = intArrayOf(16000, 8000, 44100)
-        const val DEFAULT_FRAME_DURATION_MS = 50
+        const val DEFAULT_FRAME_DURATION_MS = 100
     }
 
     interface Callback {

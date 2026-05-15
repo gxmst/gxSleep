@@ -69,8 +69,11 @@ fun SessionListScreen(
             confirmText = "删除",
             isDanger = true,
             onConfirm = {
-                scope.launch { showDeleteDialog?.let { viewModel.deleteSession(it) } }
+                val idToDelete = showDeleteDialog
                 showDeleteDialog = null
+                if (idToDelete != null) {
+                    scope.launch { viewModel.deleteSession(idToDelete) }
+                }
             },
             onDismiss = { showDeleteDialog = null }
         )

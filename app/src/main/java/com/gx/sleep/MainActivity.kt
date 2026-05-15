@@ -43,8 +43,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.gx.sleep.GxSleepApp
 import com.gx.sleep.data.datastore.AppSettings
-import com.gx.sleep.data.datastore.SettingsDataStore
 import com.gx.sleep.system.PermissionManager
 import com.gx.sleep.ui.screens.batteryguide.BatteryGuideScreen
 import com.gx.sleep.ui.screens.debug.DebugScreen
@@ -68,7 +68,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val context = LocalContext.current
-            val settingsDataStore = remember { SettingsDataStore(context) }
+            val settingsDataStore = remember { (context.applicationContext as GxSleepApp).settingsDataStore }
             val settings by settingsDataStore.settings.collectAsState(initial = AppSettings())
             GxSleepTheme(themeMode = settings.themeMode) {
                 Surface(
