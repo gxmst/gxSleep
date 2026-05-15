@@ -339,6 +339,7 @@ private fun PermissionCard(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun LastReportCard(
     report: com.gx.sleep.domain.model.SessionReport,
